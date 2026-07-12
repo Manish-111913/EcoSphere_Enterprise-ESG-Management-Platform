@@ -1,40 +1,65 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Award, Trophy, Users, CheckCircle, XCircle, Calendar, Gift, Flame, ShieldAlert, GraduationCap } from 'lucide-react';
 import { useToast } from '../ui-kit/Toast';
-import { mockChallenges, mockCsrActivities, mockCsrParticipations, mockEmployees } from '../../mocks/db';
-import { socialMetricsService } from '../../services/socialMetricsService';
+import { challengesService } from '../../services/challengesService';
+import { csrActivitiesService, EnrichedActivity, CsrPart } from '../../services/csrActivitiesService';
+import { csrService } from '../../services/csrService';
+import { dashboardService } from '../../services/dashboardService';
+import { reference } from '../../services/referenceData';
+import { Challenge } from '../../types';
+
+interface EmpInfo { name: string; email: string; avatar: string }
 
 export default function CSRManagerDashboard() {
   const { addToast } = useToast();
-  
-  const [challenges, setChallenges] = useState(() => {
-    const cached = localStorage.getItem('ecosphere_challenges');
-    return cached ? JSON.parse(cached) : mockChallenges;
-  });
 
-  const [participations, setParticipations] = useState(() => {
-    const cached = localStorage.getItem('ecosphere_csr_participations');
-    return cached ? JSON.parse(cached) : mockCsrParticipations;
-  });
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const [activities, setActivities] = useState<EnrichedActivity[]>([]);
+  const [participations, setParticipations] = useState<CsrPart[]>([]);
+  const [empById, setEmpById] = useState<Record<string, EmpInfo>>({});
+  const [trainingCompletion, setTrainingCompletion] = useState<number>(0);
 
-  const pendingParticipations = participations.filter((p: any) => p.status === 'Pending');
+  useEffect(() => {
+    (async () => {
+      const [ch, board, training, users] = await Promise.all([
+        challengesService.getChallenges().catch(() => [] as Challenge[]),
+        csrActivitiesService.getBoard().catch(() => ({ activities: [] as EnrichedActivity[], participations: [] as CsrPart[] })),
+        dashboardService.getTrainingCompletion().catch(() => ({ orgWidePct: 0, byDepartment: [] })),
+        reference.users().catch(() => []),
+      ]);
+      setChallenges(ch);
+      setActivities(board.activities);
+      setParticipations(board.participations);
+      setTrainingCompletion(training.orgWidePct);
+      const map: Record<string, EmpInfo> = {};
+      users.forEach((u) => {
+        map[u.id] = { name: u.name, email: u.email, avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=0D9488&color=fff` };
+      });
+      setEmpById(map);
+    })();
+  }, []);
 
-  const updateParticipationStatus = (id: string, newStatus: 'Approved' | 'Rejected') => {
-    const updated = participations.map((p: any) =>
-      p.id === id ? { ...p, status: newStatus } : p
-    );
-    setParticipations(updated);
-    localStorage.setItem('ecosphere_csr_participations', JSON.stringify(updated));
-    addToast({
-      title: `Submission ${newStatus}`,
-      description: `CSR Participation record ${id} has been ${newStatus.toLowerCase()}.`,
-      type: newStatus === 'Approved' ? 'success' : 'info'
-    });
+  const pendingParticipations = participations.filter((p) => p.status === 'Pending');
+  const approvedCount = participations.filter((p) => p.status === 'Approved').length;
+  const participationRate = participations.length ? Math.round((approvedCount / participations.length) * 100) : 0;
+
+  const updateParticipationStatus = async (id: string, newStatus: 'Approved' | 'Rejected') => {
+    try {
+      if (newStatus === 'Approved') await csrService.approve(id);
+      else await csrService.reject(id, 'Rejected from dashboard review.');
+      setParticipations((prev) => prev.map((p) => (p.id === id ? { ...p, status: newStatus } : p)));
+      addToast({
+        title: `Submission ${newStatus}`,
+        description: `CSR Participation record ${id} has been ${newStatus.toLowerCase()}.`,
+        type: newStatus === 'Approved' ? 'success' : 'info'
+      });
+    } catch (err) {
+      addToast({ title: 'Action failed', description: (err as Error).message, type: 'danger' });
+    }
   };
 
-  const activeChallenges = challenges.filter((c: any) => c.status === 'Active');
-  const activeCsr = mockCsrActivities.filter(a => a.status === 'Active');
-  const trainingCompletion = socialMetricsService.trainingCompletionPct('All');
+  const activeChallenges = challenges.filter((c) => c.status === 'Active');
+  const activeCsr = activities.filter((a) => a.status === 'Active');
 
   return (
     <div className="space-y-6">
@@ -46,7 +71,7 @@ export default function CSRManagerDashboard() {
             <span className="p-1.5 bg-green-50 text-green-700 rounded-lg"><Calendar size={16} /></span>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-neutral-text-dark">{mockCsrActivities.length}</span>
+            <span className="text-2xl font-black text-neutral-text-dark">{activities.length}</span>
             <span className="text-xs font-bold text-neutral-text-muted">activities</span>
           </div>
           <p className="text-[11px] text-green-600 font-bold mt-1.5">
@@ -88,11 +113,11 @@ export default function CSRManagerDashboard() {
             <span className="p-1.5 bg-purple-50 text-purple-700 rounded-lg"><Users size={16} /></span>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-neutral-text-dark">84%</span>
+            <span className="text-2xl font-black text-neutral-text-dark">{participationRate}%</span>
             <span className="text-xs font-bold text-neutral-text-muted">staff rate</span>
           </div>
           <p className="text-[11px] text-purple-600 font-bold mt-1.5">
-            +5.2% vs previous quarter
+            Approved of all submissions
           </p>
         </div>
 
@@ -148,7 +173,7 @@ export default function CSRManagerDashboard() {
             CSR Activity Programs
           </h3>
           <div className="space-y-3">
-            {mockCsrActivities.slice(0, 4).map((act: any) => (
+            {activities.slice(0, 4).map((act) => (
               <div key={act.id} className="border border-neutral-border rounded-lg p-3.5 flex items-start justify-between gap-4">
                 <div className="text-left">
                   <div className="flex items-center gap-2">
@@ -183,9 +208,9 @@ export default function CSRManagerDashboard() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {pendingParticipations.map((part: any) => {
-              const emp = mockEmployees.find(e => e.id === part.employeeId);
-              const act = mockCsrActivities.find(a => a.id === part.activityId);
+            {pendingParticipations.map((part) => {
+              const emp = empById[part.employeeId];
+              const act = activities.find(a => a.id === part.activityId);
               return (
                 <div key={part.id} className="border border-neutral-border rounded-xl p-4 flex flex-col justify-between bg-neutral-bg/30">
                   <div className="text-left">

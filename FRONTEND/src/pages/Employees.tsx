@@ -5,14 +5,31 @@ import FormDrawer from '../components/ui-kit/FormDrawer';
 import ConfirmDialog from '../components/ui-kit/ConfirmDialog';
 import StatusBadge from '../components/ui-kit/StatusBadge';
 import SelectField from '../components/ui/select-field';
-import { gamificationService } from '../services/gamificationService';
-import { mockDepartments } from '../mocks/db';
-import { 
+import { api, ApiError } from '../services/apiClient';
+import { reference, DeptRef } from '../services/referenceData';
+import {
   Users, UserPlus, Mail, Shield, Building, X, Search, Filter, Trash2, 
   Edit, Award, ShieldAlert, Badge as BadgeIcon, Calendar, CheckSquare, 
   Info, Trophy, RefreshCw, Eye, Sparkles, Check, ChevronRight, UserCheck
 } from 'lucide-react';
 import { Employee, UserRole } from '../types';
+
+const avatarUrl = (name: string) =>
+  `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'User')}&background=0D9488&color=fff`;
+
+interface UserRow {
+  id: string;
+  employeeCode: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  departmentId: string;
+  designation: string | null;
+  isActive: boolean;
+  joinDate: string | null;
+  createdAt: string;
+  roles: string[];
+}
 
 export default function Employees() {
   const { role: currentUserRole } = useApp();
@@ -21,6 +38,8 @@ export default function Employees() {
   // State
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
+  const [departments, setDepartments] = useState<DeptRef[]>([]);
+  const [roleNameToId, setRoleNameToId] = useState<Record<string, string>>({});
 
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
@@ -63,22 +82,33 @@ export default function Employees() {
     'Department Head', 'Employee', 'Auditor'
   ];
 
-  // Fetch initial employees
-  const loadEmployees = () => {
+  // Fetch employees from the real backend (GET /users, paginated).
+  const loadEmployees = async () => {
     setLoading(true);
     try {
-      const emps = gamificationService.getEmployees();
-      // Ensure everyone has an employee code and joinDate for completeness
-      const hydrated = emps.map((e, idx) => ({
-        ...e,
-        employeeCode: (e as any).employeeCode || `EMP-${String(idx + 1).padStart(3, '0')}`,
-        joinDate: (e as any).joinDate || `2025-${String((idx % 12) + 1).padStart(2, '0')}-15`,
-        designation: (e as any).designation || (e.role === 'Department Head' ? 'Director' : e.role),
-        status: (e as any).status !== undefined ? (e as any).status : ('Active' as const)
-      }));
-      setEmployees(hydrated);
+      const res = await api.get<{ data: UserRow[] } | UserRow[]>('/users?size=100');
+      const rows = Array.isArray(res) ? res : res.data;
+      const mapped = rows.map((u) => {
+        const name = `${u.firstName} ${u.lastName}`.trim();
+        return {
+          id: u.id,
+          name,
+          email: u.email,
+          avatar: avatarUrl(name),
+          role: (u.roles?.[0] as UserRole) || 'Employee',
+          departmentId: u.departmentId,
+          points: 0,
+          level: 1,
+          xp: 0,
+          employeeCode: u.employeeCode,
+          joinDate: (u.joinDate || u.createdAt || '').split('T')[0],
+          designation: u.designation || u.roles?.[0] || 'Employee',
+          status: u.isActive ? 'Active' : 'Inactive',
+        } as any;
+      });
+      setEmployees(mapped);
     } catch (err) {
-      console.error(err);
+      addToast(err instanceof ApiError ? err.message : 'Failed to load users', 'danger');
     } finally {
       setLoading(false);
     }
@@ -86,21 +116,24 @@ export default function Employees() {
 
   useEffect(() => {
     loadEmployees();
+    reference.departments().then(setDepartments).catch(() => {});
+    api
+      .get<{ id: string; name: string }[]>('/roles')
+      .then((rs) => {
+        const map: Record<string, string> = {};
+        rs.forEach((r) => (map[r.name] = r.id));
+        setRoleNameToId(map);
+      })
+      .catch(() => {});
   }, []);
 
   const getDeptName = (deptId: string) => {
-    const d = mockDepartments.find(item => item.id === deptId);
+    const d = departments.find(item => item.id === deptId);
     return d ? d.name : 'Corporate';
   };
 
-  // Sync state helpers to update localStorage
-  const syncEmployees = (updated: Employee[]) => {
-    localStorage.setItem('ecosphere_employees', JSON.stringify(updated));
-    setEmployees(updated);
-  };
-
-  // Invite action
-  const handleSendInvite = (e: React.FormEvent) => {
+  // Invite action → creates the user via POST /users
+  const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inviteEmail) {
       addToast('Email is required', 'warning');
@@ -110,92 +143,91 @@ export default function Employees() {
       addToast('Please select a department', 'warning');
       return;
     }
+    const roleId = roleNameToId[inviteRole];
+    if (!roleId) {
+      addToast('Selected role is unavailable', 'danger');
+      return;
+    }
 
-    const deptName = getDeptName(inviteDeptId);
-    const origin = window.location.origin;
-    const inviteUrl = `${origin}/#/invite?token=demo&email=${encodeURIComponent(inviteEmail)}&role=${encodeURIComponent(inviteRole)}&dept=${encodeURIComponent(deptName)}`;
+    // Derive a first/last name from the email local-part.
+    const local = inviteEmail.split('@')[0].replace(/[._]/g, ' ').trim();
+    const parts = local.split(/\s+/);
+    const firstName = parts[0] || local;
+    const lastName = parts.slice(1).join(' ') || firstName;
 
-    navigator.clipboard.writeText(inviteUrl).then(() => {
-      addToast('Invitation sent! Activation link copied to clipboard.', 'success');
-    }).catch(() => {
-      addToast('Invitation sent successfully.', 'success');
-    });
-
-    // Create a new invited employee
-    const newEmp: Employee = {
-      id: `emp-${Date.now()}`,
-      name: inviteEmail.split('@')[0].replace('.', ' '),
-      email: inviteEmail,
-      avatar: `https://images.unsplash.com/photo-${1500000000000 + Date.now() % 1000000}?w=150`,
-      role: inviteRole,
-      departmentId: inviteDeptId,
-      points: 0,
-      level: 1,
-      xp: 0,
-      employeeCode: `EMP-${String(employees.length + 1).padStart(3, '0')}`,
-      joinDate: new Date().toISOString().split('T')[0],
-      designation: inviteRole,
-      status: 'Active' as any
-    } as any;
-
-    syncEmployees([newEmp, ...employees]);
-    setIsInviteOpen(false);
-    setInviteEmail('');
-    setInviteRole('Employee');
-    setInviteDeptId('');
+    try {
+      await api.post('/users', {
+        email: inviteEmail,
+        firstName,
+        lastName,
+        departmentId: inviteDeptId,
+        designation: inviteRole,
+        roleIds: [roleId],
+      });
+      addToast('Invitation sent! User account created.', 'success');
+      reference.invalidate();
+      setIsInviteOpen(false);
+      setInviteEmail('');
+      setInviteRole('Employee');
+      setInviteDeptId('');
+      await loadEmployees();
+    } catch (err) {
+      addToast(err instanceof ApiError ? err.message : 'Failed to invite user', 'danger');
+    }
   };
 
-  // Edit employee save
-  const handleSaveEdit = (e: React.FormEvent) => {
+  // Edit employee save → PUT /users/:id
+  const handleSaveEdit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingEmployee) return;
 
-    const updated = employees.map(emp => {
-      if (emp.id === editingEmployee.id) {
-        return {
-          ...emp,
-          name: editName,
-          email: editEmail,
-          employeeCode: editCode,
-          departmentId: editDeptId,
-          designation: editDesignation
-        } as any;
-      }
-      return emp;
-    });
+    const parts = editName.trim().split(/\s+/);
+    const firstName = parts[0] || editName;
+    const lastName = parts.slice(1).join(' ') || firstName;
 
-    syncEmployees(updated);
-    addToast('Employee updated successfully', 'success');
-    setIsEditOpen(false);
+    try {
+      await api.put(`/users/${editingEmployee.id}`, {
+        firstName,
+        lastName,
+        departmentId: editDeptId,
+        designation: editDesignation,
+      });
+      addToast('Employee updated successfully', 'success');
+      reference.invalidate();
+      setIsEditOpen(false);
+      await loadEmployees();
+    } catch (err) {
+      addToast(err instanceof ApiError ? err.message : 'Failed to update employee', 'danger');
+    }
   };
 
-  // Change Role save
-  const handleSaveRole = (e: React.FormEvent) => {
+  // Change Role save → PUT /users/:id/roles
+  const handleSaveRole = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!roleEmployee) return;
+    const roleId = roleNameToId[roleSelection];
+    if (!roleId) {
+      addToast('Selected role is unavailable', 'danger');
+      return;
+    }
 
-    const updated = employees.map(emp => {
-      if (emp.id === roleEmployee.id) {
-        return {
-          ...emp,
-          role: roleSelection,
-          designation: roleSelection === 'Department Head' ? 'Director' : roleSelection
-        };
-      }
-      return emp;
-    });
-
-    syncEmployees(updated);
-    addToast('Employee role changed successfully', 'success');
-    setIsChangeRolesOpen(false);
+    try {
+      await api.put(`/users/${roleEmployee.id}/roles`, { roleIds: [roleId] });
+      addToast('Employee role changed successfully', 'success');
+      reference.invalidate();
+      setIsChangeRolesOpen(false);
+      await loadEmployees();
+    } catch (err) {
+      addToast(err instanceof ApiError ? err.message : 'Failed to change role', 'danger');
+    }
   };
 
-  // Toggle activation (Deactivate / Activate)
-  const handleToggleActivation = (emp: Employee) => {
+  // Toggle activation → POST /users/:id/activate | /deactivate
+  const handleToggleActivation = async (emp: Employee) => {
     const isDeactivating = (emp as any).status !== 'Inactive';
 
     if (isDeactivating) {
-      // Guard: At least one Admin must remain
+      // Guard: At least one Admin must remain (backend also enforces this)
       const activeAdmins = employees.filter(e => e.role === 'Admin' && (e as any).status !== 'Inactive');
       if (emp.role === 'Admin' && activeAdmins.length <= 1) {
         addToast('At least one Admin must remain active.', 'danger');
@@ -203,47 +235,50 @@ export default function Employees() {
       }
     }
 
-    const updated = employees.map(e => {
-      if (e.id === emp.id) {
-        return {
-          ...e,
-          status: isDeactivating ? 'Inactive' : 'Active'
-        } as any;
-      }
-      return e;
-    });
-
-    syncEmployees(updated);
-    addToast(
-      isDeactivating ? 'Employee profile deactivated' : 'Employee profile activated', 
-      'success'
-    );
+    try {
+      await api.post(`/users/${emp.id}/${isDeactivating ? 'deactivate' : 'activate'}`);
+      addToast(
+        isDeactivating ? 'Employee profile deactivated' : 'Employee profile activated',
+        'success'
+      );
+      reference.invalidate();
+      await loadEmployees();
+    } catch (err) {
+      addToast(err instanceof ApiError ? err.message : 'Failed to update status', 'danger');
+    }
   };
 
-  // Open profile drawer & resolve XP history + badges
-  const handleOpenProfile = (emp: Employee) => {
+  // Open profile drawer & resolve XP history + badges from the backend
+  const handleOpenProfile = async (emp: Employee) => {
     setProfileEmployee(emp);
-    
-    // XP history
-    const storedLedger = localStorage.getItem('ecosphere_xp_ledger');
-    const ledger = storedLedger ? JSON.parse(storedLedger) : [];
-    const empLedger = ledger.filter((l: any) => l.employeeId === emp.id);
-    setProfileXpHistory(empLedger);
-
-    // Badges awards
-    const storedAwards = localStorage.getItem('ecosphere_badge_awards');
-    const awards = storedAwards ? JSON.parse(storedAwards) : [];
-    const empAwards = awards.filter((a: any) => a.employeeId === emp.id);
-    
-    // Resolve badges full objects
-    const badgesList = gamificationService.getBadges();
-    const empBadges = empAwards.map((a: any) => {
-      const bg = badgesList.find(b => b.id === a.badgeId);
-      return bg ? { ...bg, awardedAt: a.awardedAt } : null;
-    }).filter(Boolean);
-
-    setProfileBadges(empBadges);
+    setProfileXpHistory([]);
+    setProfileBadges([]);
     setIsProfileOpen(true);
+
+    try {
+      const [xp, badges] = await Promise.all([
+        api.get<{ entries: any[] }>(`/users/${emp.id}/xp`),
+        api.get<any[]>(`/users/${emp.id}/badges`),
+      ]);
+      setProfileXpHistory(
+        (xp.entries || []).map((l) => ({
+          description: l.remarks || l.sourceType || 'XP entry',
+          timestamp: String(l.createdAt),
+          source: l.sourceType || l.entryType,
+          type: l.entryType === 'EARN' ? 'EARN' : 'SPEND',
+          amount: Math.abs(l.points ?? 0),
+        }))
+      );
+      setProfileBadges(
+        (badges || []).map((b) => ({
+          name: b.name,
+          description: b.name,
+          awardedAt: b.awardedAt,
+        }))
+      );
+    } catch {
+      /* profile telemetry is best-effort */
+    }
   };
 
   // Filter logic
@@ -345,7 +380,7 @@ export default function Employees() {
               onValueChange={setSelectedDept}
               options={[
                 { value: 'All', label: 'All Departments' },
-                ...mockDepartments.map((department) => ({
+                ...departments.map((department) => ({
                   value: department.id,
                   label: department.name,
                 })),
@@ -576,7 +611,7 @@ export default function Employees() {
             <SelectField
               value={inviteDeptId}
               onValueChange={setInviteDeptId}
-              options={mockDepartments.map((department) => ({
+              options={departments.map((department) => ({
                 value: department.id,
                 label: `${department.name} (${department.code})`,
               }))}
@@ -660,7 +695,7 @@ export default function Employees() {
             <SelectField
               value={editDeptId}
               onValueChange={setEditDeptId}
-              options={mockDepartments.map((department) => ({
+              options={departments.map((department) => ({
                 value: department.id,
                 label: department.name,
               }))}

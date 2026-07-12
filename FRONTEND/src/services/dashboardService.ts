@@ -1,6 +1,43 @@
 import { api } from './apiClient';
+import { environmentalService } from './environmentalService';
 import { EsgDetails, CarbonTrendData, DepartmentRanking } from '../mocks/dashboardData';
 import { StatCardData, PendingApproval, ActivityFeedItem, NotificationItem, User, UserRole } from '../types';
+
+/** Shape returned by GET /me/summary (self-service gamification snapshot). */
+export interface MeSummaryData {
+  xpBalance: number;
+  level: number;
+  nextLevelAt: number | null;
+  badges: { id: string; badgeId: string; name: string; iconKey: string | null; awardedAt: string; awardedMode: string }[];
+  activeChallenges: { challengeId: string; title: string; progressPct: number; status: string | null }[];
+  pendingAcknowledgementsCount: number;
+  affordableRewardsCount: number;
+  leaderboardRank: number | null;
+}
+
+/** A single individual-leaderboard row, enriched with a generated avatar. */
+export interface LeaderboardEntry {
+  rank: number;
+  id: string;
+  name: string;
+  department?: string;
+  points: number;
+  avatar: string;
+}
+
+/** Org-wide + per-department training completion, derived from /training-records/summary. */
+export interface TrainingCompletion {
+  orgWidePct: number;
+  byDepartment: { departmentId: string; name: string; completionPct: number }[];
+}
+
+/** Scope 1/2/3 emission totals (metric tons CO₂e), derived from carbon transactions × factor scope. */
+export interface ScopeBreakdownEntry {
+  scope: 1 | 2 | 3;
+  name: string;
+  value: number;
+  color: string;
+}
 
 interface SummaryResponse {
   kpis: { code: string; label: string; value: number; delta: number | null; sparkline: number[] }[];
@@ -79,5 +116,53 @@ export const dashboardService = {
     const me = await api.get<{ user: { firstName: string; lastName: string; email: string } }>('/auth/me');
     const name = `${me.user.firstName} ${me.user.lastName}`.trim();
     return { name, email: me.user.email, avatar: avatar(name), role, points: 0, level: 1, xp: 0 };
+  },
+
+  /** Current user's gamification summary (xp/level/badges/rank) — GET /me/summary. */
+  async getMeSummary(): Promise<MeSummaryData> {
+    return api.get<MeSummaryData>('/me/summary');
+  },
+
+  /** Individual leaderboard, all-time, with generated avatars. */
+  async getEmployeeLeaderboard(): Promise<LeaderboardEntry[]> {
+    const rows = await api.get<{ rank: number; id: string; name: string; department?: string; total: number }[]>(
+      '/leaderboard?scope=individual&period=all',
+    );
+    return rows.map((r) => ({ rank: r.rank, id: r.id, name: r.name, department: r.department, points: r.total, avatar: avatar(r.name) }));
+  },
+
+  /** Org-wide + per-department training completion — GET /training-records/summary. */
+  async getTrainingCompletion(): Promise<TrainingCompletion> {
+    const rows = await api.get<{ departmentId: string; name: string; employees: number; completed: number; completionPct: number }[]>(
+      '/training-records/summary',
+    );
+    const totalEmployees = rows.reduce((s, r) => s + (r.employees ?? 0), 0);
+    const totalCompleted = rows.reduce((s, r) => s + (r.completed ?? 0), 0);
+    return {
+      orgWidePct: totalEmployees ? Math.round((totalCompleted / totalEmployees) * 100) : 0,
+      byDepartment: rows.map((r) => ({ departmentId: r.departmentId, name: r.name, completionPct: r.completionPct ?? 0 })),
+    };
+  },
+
+  /**
+   * Scope 1/2/3 emissions breakdown (t CO₂e), computed from carbon transactions
+   * joined to their emission-factor scope. co2eKg → tonnes.
+   */
+  async getScopeBreakdown(): Promise<ScopeBreakdownEntry[]> {
+    const [txs, factors] = await Promise.all([
+      environmentalService.getCarbonTransactions(),
+      environmentalService.getEmissionFactors(),
+    ]);
+    const scopeByFactor = new Map(factors.map((f) => [f.id, f.scope]));
+    const totals: Record<1 | 2 | 3, number> = { 1: 0, 2: 0, 3: 0 };
+    txs.forEach((t) => {
+      const scope = scopeByFactor.get(t.emissionFactorId) ?? 2;
+      totals[scope] += t.calculatedCo2e;
+    });
+    return [
+      { scope: 1, name: 'Scope 1 - Direct', value: Math.round(totals[1] / 1000), color: '#0F766E' },
+      { scope: 2, name: 'Scope 2 - Indirect', value: Math.round(totals[2] / 1000), color: '#0D9488' },
+      { scope: 3, name: 'Scope 3 - Value Chain', value: Math.round(totals[3] / 1000), color: '#14B8A6' },
+    ];
   },
 };

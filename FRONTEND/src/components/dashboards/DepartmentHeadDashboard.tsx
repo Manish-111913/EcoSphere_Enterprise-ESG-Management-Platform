@@ -1,46 +1,74 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/auth';
 import { CheckCircle, XCircle, Users, Award, ShieldAlert, BarChart2, Check, HelpCircle } from 'lucide-react';
 import { useToast } from '../ui-kit/Toast';
-import { mockPendingApprovals } from '../../mocks/dashboardData';
-import { mockDepartments, mockEmployees, mockDepartmentScores } from '../../mocks/db';
+import { dashboardService } from '../../services/dashboardService';
+import { csrService } from '../../services/csrService';
+import { challengeParticipationsService } from '../../services/challengeParticipationsService';
+import { reference } from '../../services/referenceData';
+import { PendingApproval } from '../../types';
+
+interface ScoreRow { id: string; quarter: string; environmental: number; social: number; governance: number; total: number }
 
 export default function DepartmentHeadDashboard() {
   const { user } = useApp();
+  const { employeeId } = useAuth();
   const { addToast } = useToast();
 
-  const deptObj = mockDepartments.find(d => d.head === user?.name) || mockDepartments[0];
-  const deptEmployees = mockEmployees.filter(e => e.departmentId === deptObj.id);
+  const [dept, setDept] = useState<{ name: string; code: string }>({ name: '—', code: '—' });
+  const [deptEmployeeCount, setDeptEmployeeCount] = useState<number>(0);
+  const [approvals, setApprovals] = useState<PendingApproval[]>([]);
+  const [deptScores, setDeptScores] = useState<ScoreRow[]>([]);
 
-  const [approvals, setApprovals] = useState(() => {
-    // Filter pending approvals queue for this department's employees
-    const cached = localStorage.getItem('ecosphere_pending_approvals');
-    const list = cached ? JSON.parse(cached) : mockPendingApprovals;
-    // Keep those associated with this department's employees
-    return list;
-  });
+  useEffect(() => {
+    (async () => {
+      const [users, depts, pending, rankings] = await Promise.all([
+        reference.users().catch(() => []),
+        reference.departments().catch(() => []),
+        dashboardService.getPendingApprovals().catch(() => [] as PendingApproval[]),
+        dashboardService.getDepartmentRankings().catch(() => []),
+      ]);
+      const me = users.find((u) => u.id === employeeId);
+      const deptRef = depts.find((d) => d.id === me?.departmentId) ?? depts[0];
+      if (deptRef) {
+        setDept({ name: deptRef.name, code: deptRef.code });
+        setDeptEmployeeCount(users.filter((u) => u.departmentId === deptRef.id).length);
+        const rank = rankings.find((r) => r.department === deptRef.name);
+        if (rank) {
+          setDeptScores([{ id: 'current', quarter: 'Current', environmental: rank.environmental, social: rank.social, governance: rank.governance, total: rank.score }]);
+        }
+      }
+      setApprovals(pending);
+    })();
+  }, [employeeId]);
 
-  const departmentApprovals = approvals.filter((app: any) => {
-    return app.user?.department === deptObj.name;
-  });
+  // Pending approvals aren't department-tagged by the backend, so the dept head
+  // reviews the full pending queue routed to them.
+  const departmentApprovals = approvals;
 
-  const handleApprovalAction = (id: string, action: 'approved' | 'rejected') => {
-    setApprovals((prev: any) => prev.filter((item: any) => item.id !== id));
-    // Update local storage
-    const cached = localStorage.getItem('ecosphere_pending_approvals');
-    const list = cached ? JSON.parse(cached) : mockPendingApprovals;
-    const updated = list.filter((item: any) => item.id !== id);
-    localStorage.setItem('ecosphere_pending_approvals', JSON.stringify(updated));
-
-    addToast({
-      title: `Submission ${action === 'approved' ? 'Approved' : 'Rejected'}`,
-      description: `Submission record ${id} has been successfully ${action}.`,
-      type: action === 'approved' ? 'success' : 'info'
-    });
+  const handleApprovalAction = async (id: string, type: PendingApproval['type'], action: 'approved' | 'rejected') => {
+    try {
+      if (type === 'csr') {
+        if (action === 'approved') await csrService.approve(id);
+        else await csrService.reject(id, 'Rejected from department dashboard.');
+      } else {
+        if (action === 'approved') await challengeParticipationsService.approve(id);
+        else await challengeParticipationsService.reject(id, 'Rejected from department dashboard.');
+      }
+      setApprovals((prev) => prev.filter((item) => item.id !== id));
+      addToast({
+        title: `Submission ${action === 'approved' ? 'Approved' : 'Rejected'}`,
+        description: `Submission record ${id} has been successfully ${action}.`,
+        type: action === 'approved' ? 'success' : 'info'
+      });
+    } catch (err) {
+      addToast({ title: 'Action failed', description: (err as Error).message, type: 'danger' });
+    }
   };
 
-  // Get department scores
-  const deptScores = mockDepartmentScores.filter(s => s.departmentId === deptObj.id);
+  const deptObj = dept;
+  const deptEmployees = { length: deptEmployeeCount };
 
   return (
     <div className="space-y-6">
@@ -90,7 +118,7 @@ export default function DepartmentHeadDashboard() {
           </div>
           <div className="mt-3 flex items-baseline gap-2">
             <span className="text-2xl font-black text-neutral-text-dark">
-              {deptScores[deptScores.length - 1]?.total || 85}
+              {deptScores[deptScores.length - 1]?.total ?? '—'}
             </span>
             <span className="text-xs font-bold text-neutral-text-muted">/ 100</span>
           </div>
@@ -105,11 +133,11 @@ export default function DepartmentHeadDashboard() {
             <span className="p-1.5 bg-indigo-50 text-indigo-700 rounded-lg"><Award size={16} /></span>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-neutral-text-dark">12</span>
+            <span className="text-2xl font-black text-neutral-text-dark">—</span>
             <span className="text-xs font-bold text-neutral-text-muted">redeemed</span>
           </div>
           <p className="text-[11px] text-emerald-600 font-bold mt-1.5">
-            Eco mugs & Solar chargers
+            No department-level source
           </p>
         </div>
       </div>
@@ -162,13 +190,13 @@ export default function DepartmentHeadDashboard() {
 
                   <div className="mt-4 border-t border-neutral-border/50 pt-3 flex items-center justify-end gap-2">
                     <button
-                      onClick={() => handleApprovalAction(app.id, 'rejected')}
+                      onClick={() => handleApprovalAction(app.id, app.type, 'rejected')}
                       className="px-3 py-1.5 hover:bg-red-50 text-red-600 font-bold text-[11px] rounded-lg border border-red-200 flex items-center gap-1.5 transition-colors"
                     >
                       <XCircle size={14} /> Reject
                     </button>
                     <button
-                      onClick={() => handleApprovalAction(app.id, 'approved')}
+                      onClick={() => handleApprovalAction(app.id, app.type, 'approved')}
                       className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-lg flex items-center gap-1.5 transition-all shadow-sm"
                     >
                       <CheckCircle size={14} /> Approve

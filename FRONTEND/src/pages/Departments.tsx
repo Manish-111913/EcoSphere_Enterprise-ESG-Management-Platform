@@ -11,18 +11,48 @@ import FormDrawer from '../components/ui-kit/FormDrawer';
 import ConfirmDialog from '../components/ui-kit/ConfirmDialog';
 import StatusBadge from '../components/ui-kit/StatusBadge';
 import SelectField from '../components/ui/select-field';
-import { gamificationService } from '../services/gamificationService';
 import { environmentalService } from '../services/environmentalService';
-import { mockDepartments } from '../mocks/db';
-import { mockDepartmentScores } from '../mocks/db';
+import { api, ApiError } from '../services/apiClient';
+import { reference } from '../services/referenceData';
+
+const avatarUrl = (name: string) =>
+  `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'User')}&background=0D9488&color=fff`;
 
 interface Department {
   id: string;
   name: string;
   code: string;
   head: string;
+  headUserId: string | null;
   parentDepartmentId: string | null;
   status: 'Active' | 'Inactive';
+}
+
+interface BackendDept {
+  id: string;
+  name: string;
+  code: string;
+  headUserId: string | null;
+  parentDepartmentId: string | null;
+  isActive: boolean;
+}
+
+interface DeptRanking {
+  departmentId: string;
+  name: string;
+  total: number;
+  e: number;
+  s: number;
+  g: number;
+}
+
+interface DeptUserRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  departmentId: string;
+  roles: string[];
 }
 
 export default function Departments() {
@@ -35,6 +65,7 @@ export default function Departments() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [rankings, setRankings] = useState<DeptRanking[]>([]);
   const [viewMode, setViewMode] = useState<'table' | 'tree'>('table');
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -56,6 +87,7 @@ export default function Departments() {
   const [formName, setFormName] = useState('');
   const [formCode, setFormCode] = useState('');
   const [formHead, setFormHead] = useState('');
+  const [formHeadUserId, setFormHeadUserId] = useState<string | null>(null);
   const [formParentId, setFormParentId] = useState<string>('none');
   const [formStatus, setFormStatus] = useState<boolean>(true);
 
@@ -69,23 +101,53 @@ export default function Departments() {
   const [isDeleteBlocked, setIsDeleteBlocked] = useState(false);
   const [blockedMessage, setBlockedMessage] = useState('');
 
+  // Load departments (real API), resolving head user names and mapping status.
+  const reload = async () => {
+    try {
+      const [deptRes, rankRes, userRes] = await Promise.all([
+        api.get<{ data: BackendDept[] } | BackendDept[]>('/departments?size=200'),
+        api.get<DeptRanking[]>('/dashboard/department-rankings').catch(() => [] as DeptRanking[]),
+        api.get<{ data: DeptUserRow[] } | DeptUserRow[]>('/users?size=100').catch(() => [] as DeptUserRow[]),
+      ]);
+
+      const deptRows = Array.isArray(deptRes) ? deptRes : deptRes.data;
+      const mapped: Department[] = await Promise.all(
+        deptRows.map(async (d) => ({
+          id: d.id,
+          name: d.name,
+          code: d.code,
+          head: d.headUserId ? await reference.userNameById(d.headUserId) : '—',
+          headUserId: d.headUserId,
+          parentDepartmentId: d.parentDepartmentId,
+          status: (d.isActive ? 'Active' : 'Inactive') as 'Active' | 'Inactive',
+        })),
+      );
+      setDepartments(mapped);
+      setRankings(rankRes);
+
+      const userRows = Array.isArray(userRes) ? userRes : userRes.data;
+      setEmployees(
+        userRows.map((u) => {
+          const name = `${u.firstName} ${u.lastName}`.trim();
+          return {
+            id: u.id,
+            name,
+            email: u.email,
+            avatar: avatarUrl(name),
+            role: u.roles?.[0] || 'Employee',
+            departmentId: u.departmentId,
+            points: 0,
+          };
+        }),
+      );
+    } catch (err) {
+      addToast(err instanceof ApiError ? err.message : 'Failed to load departments', 'danger');
+    }
+  };
+
   // Initial Load
   useEffect(() => {
-    // Load departments
-    const stored = localStorage.getItem('ecosphere_departments');
-    if (stored) {
-      setDepartments(JSON.parse(stored));
-    } else {
-      const initial = mockDepartments.map(d => ({
-        ...d,
-        status: 'Active' as const
-      }));
-      localStorage.setItem('ecosphere_departments', JSON.stringify(initial));
-      setDepartments(initial);
-    }
-
-    // Load employees
-    setEmployees(gamificationService.getEmployees());
+    reload();
 
     // Load carbon transactions
     environmentalService.getCarbonTransactions().then(txs => {
@@ -116,11 +178,6 @@ export default function Departments() {
       }
     }
   }, [departments, searchParams]);
-
-  const saveDepartmentsToStorage = (updated: Department[]) => {
-    localStorage.setItem('ecosphere_departments', JSON.stringify(updated));
-    setDepartments(updated);
-  };
 
   // Autocomplete suggestions
   const headSuggestions = useMemo(() => {
@@ -173,10 +230,11 @@ export default function Departments() {
       const deptEmployees = employees.filter(emp => emp.departmentId === dept.id);
       const deptTxs = transactions.filter(tx => tx.department.toLowerCase() === dept.name.toLowerCase());
       
-      // Get score
-      const scoreObj = mockDepartmentScores.find(s => s.departmentId === dept.id && s.quarter === '2026-Q2') ||
-                       mockDepartmentScores.find(s => s.departmentId === dept.id) || 
-                       { environmental: 75, social: 75, governance: 75, total: 75.0 };
+      // Get score from real department-rankings (matched by id); fall back to '—'.
+      const rank = rankings.find(r => r.departmentId === dept.id);
+      const scoreObj = rank
+        ? { environmental: rank.e, social: rank.s, governance: rank.g, total: rank.total }
+        : { environmental: '—', social: '—', governance: '—', total: '—' };
 
       acc[dept.id] = {
         employeeCount: deptEmployees.length,
@@ -187,7 +245,7 @@ export default function Departments() {
       };
       return acc;
     }, {} as Record<string, { employeeCount: number; employees: any[]; transactionCount: number; transactions: any[]; scores: any }>);
-  }, [departments, employees, transactions]);
+  }, [departments, employees, transactions, rankings]);
 
   // Root and nested children for Tree view
   const rootDepartments = useMemo(() => {
@@ -209,6 +267,7 @@ export default function Departments() {
     setFormName('');
     setFormCode('');
     setFormHead('');
+    setFormHeadUserId(null);
     setHeadSearch('');
     setFormParentId('none');
     setFormStatus(true);
@@ -222,13 +281,14 @@ export default function Departments() {
     setFormName(dept.name);
     setFormCode(dept.code);
     setFormHead(dept.head);
+    setFormHeadUserId(dept.headUserId);
     setHeadSearch(dept.head);
     setFormParentId(dept.parentDepartmentId || 'none');
     setFormStatus(dept.status === 'Active');
     setIsFormOpen(true);
   };
 
-  const handleSaveDepartment = (e: React.FormEvent) => {
+  const handleSaveDepartment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName || !formCode || !formHead) {
       addToast('Please fill in all required fields', 'warning');
@@ -241,37 +301,29 @@ export default function Departments() {
     }
 
     const parentId = formParentId === 'none' ? null : formParentId;
+    const payload: Record<string, unknown> = {
+      name: formName,
+      code: formCode.toUpperCase(),
+      parentDepartmentId: parentId,
+      isActive: formStatus,
+    };
+    // Backend stores the head as a user id; only send it when we resolved a real user.
+    if (formHeadUserId) payload.headUserId = formHeadUserId;
 
-    if (formMode === 'create') {
-      const newDept: Department = {
-        id: `dept-${Date.now()}`,
-        name: formName,
-        code: formCode.toUpperCase(),
-        head: formHead,
-        parentDepartmentId: parentId,
-        status: formStatus ? 'Active' : 'Inactive'
-      };
-      saveDepartmentsToStorage([newDept, ...departments]);
-      addToast('Department created successfully', 'success');
-    } else {
-      const updated = departments.map(d => {
-        if (d.id === editingDeptId) {
-          return {
-            ...d,
-            name: formName,
-            code: formCode.toUpperCase(),
-            head: formHead,
-            parentDepartmentId: parentId,
-            status: (formStatus ? 'Active' : 'Inactive') as 'Active' | 'Inactive'
-          };
-        }
-        return d;
-      });
-      saveDepartmentsToStorage(updated);
-      addToast('Department updated successfully', 'success');
+    try {
+      if (formMode === 'create') {
+        await api.post('/departments', payload);
+        addToast('Department created successfully', 'success');
+      } else {
+        await api.put(`/departments/${editingDeptId}`, payload);
+        addToast('Department updated successfully', 'success');
+      }
+      reference.invalidate();
+      setIsFormOpen(false);
+      await reload();
+    } catch (err) {
+      addToast(err instanceof ApiError ? err.message : 'Failed to save department', 'danger');
     }
-
-    setIsFormOpen(false);
   };
 
   // Delete Action with Guards
@@ -301,27 +353,34 @@ export default function Departments() {
     setIsDeleteDialogOpen(true);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!deptToDelete) return;
-    const updated = departments.filter(d => d.id !== deptToDelete.id);
-    saveDepartmentsToStorage(updated);
-    addToast('Department deleted successfully', 'success');
-    setIsDeleteDialogOpen(false);
-    setDeptToDelete(null);
+    try {
+      await api.del(`/departments/${deptToDelete.id}`);
+      addToast('Department deleted successfully', 'success');
+      reference.invalidate();
+      setIsDeleteDialogOpen(false);
+      setDeptToDelete(null);
+      await reload();
+    } catch (err) {
+      addToast(err instanceof ApiError ? err.message : 'Failed to delete department', 'danger');
+      setIsDeleteDialogOpen(false);
+    }
   };
 
-  const handleDeactivateInstead = () => {
+  const handleDeactivateInstead = async () => {
     if (!deptToDelete) return;
-    const updated = departments.map(d => {
-      if (d.id === deptToDelete.id) {
-        return { ...d, status: 'Inactive' as const };
-      }
-      return d;
-    });
-    saveDepartmentsToStorage(updated);
-    addToast('Department deactivated successfully', 'success');
-    setIsDeleteDialogOpen(false);
-    setDeptToDelete(null);
+    try {
+      await api.put(`/departments/${deptToDelete.id}`, { isActive: false });
+      addToast('Department deactivated successfully', 'success');
+      reference.invalidate();
+      setIsDeleteDialogOpen(false);
+      setDeptToDelete(null);
+      await reload();
+    } catch (err) {
+      addToast(err instanceof ApiError ? err.message : 'Failed to deactivate department', 'danger');
+      setIsDeleteDialogOpen(false);
+    }
   };
 
   // Row click Detail Drawer
@@ -579,6 +638,7 @@ export default function Departments() {
                 onChange={e => {
                   setHeadSearch(e.target.value);
                   setFormHead(e.target.value);
+                  setFormHeadUserId(null);
                   setShowHeadSuggestions(true);
                 }}
                 onFocus={() => setShowHeadSuggestions(true)}
@@ -592,6 +652,7 @@ export default function Departments() {
                       type="button"
                       onClick={() => {
                         setFormHead(emp.name);
+                        setFormHeadUserId(emp.id);
                         setHeadSearch(emp.name);
                         setShowHeadSuggestions(false);
                       }}

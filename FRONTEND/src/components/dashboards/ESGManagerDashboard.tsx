@@ -1,39 +1,69 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Leaf, CheckCircle, XCircle, ArrowUpRight, TrendingDown, Layers, FileSpreadsheet } from 'lucide-react';
 import { useToast } from '../ui-kit/Toast';
-import { mockCarbonTransactions, mockEmissionFactors, mockDepartments, mockEmployees } from '../../mocks/db';
+import { dashboardService, ScopeBreakdownEntry } from '../../services/dashboardService';
+import { environmentalService } from '../../services/environmentalService';
 import CarbonTrendChart from '../CarbonTrendChart';
 import DeptRankingsChart from '../DeptRankingsChart';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 
+interface TxRow {
+  id: string;
+  department: string;
+  factorName: string;
+  scope: 1 | 2 | 3;
+  quantity: number;
+  co2eTons: number;
+  date: string;
+}
+
 export default function ESGManagerDashboard() {
   const { addToast } = useToast();
-  const [transactions, setTransactions] = useState(() => {
-    const cached = localStorage.getItem('ecosphere_carbon_transactions');
-    return cached ? JSON.parse(cached) : mockCarbonTransactions;
-  });
 
-  const pendingTx = transactions.filter((t: any) => t.status === 'Pending');
+  const [transactions, setTransactions] = useState<TxRow[]>([]);
+  const [scopeData, setScopeData] = useState<ScopeBreakdownEntry[]>([]);
+  const [factorCount, setFactorCount] = useState<number>(0);
+  const [primaryReducer, setPrimaryReducer] = useState<string>('—');
+
+  useEffect(() => {
+    (async () => {
+      const [txs, factors, scopes, rankings] = await Promise.all([
+        environmentalService.getCarbonTransactions().catch(() => []),
+        environmentalService.getEmissionFactors().catch(() => []),
+        dashboardService.getScopeBreakdown().catch(() => [] as ScopeBreakdownEntry[]),
+        dashboardService.getDepartmentRankings().catch(() => []),
+      ]);
+      const scopeByFactor = new Map<string, 1 | 2 | 3>(factors.map((f) => [f.id, f.scope] as [string, 1 | 2 | 3]));
+      setTransactions(
+        txs.map((t) => ({
+          id: t.id,
+          department: t.department,
+          factorName: t.factorName,
+          scope: scopeByFactor.get(t.emissionFactorId) ?? 2,
+          quantity: t.quantity,
+          co2eTons: t.calculatedCo2e / 1000,
+          date: t.date,
+        })),
+      );
+      setFactorCount(factors.length);
+      setScopeData(scopes);
+      if (rankings.length > 0) setPrimaryReducer(rankings[0].department);
+    })();
+  }, []);
+
+  // Backend carbon logs are auto-calculated (no approval workflow), so this queue
+  // reflects the most recent logged entries the manager can review.
+  const pendingTx = transactions;
+  const totalEmissions = scopeData.reduce((s, d) => s + d.value, 0);
 
   const updateTxStatus = (id: string, newStatus: 'Approved' | 'Rejected') => {
-    const updated = transactions.map((t: any) =>
-      t.id === id ? { ...t, status: newStatus } : t
-    );
-    setTransactions(updated);
-    localStorage.setItem('ecosphere_carbon_transactions', JSON.stringify(updated));
+    setTransactions((prev) => prev.filter((t) => t.id !== id));
     addToast({
       title: `Transaction ${newStatus}`,
       description: `Log ${id} was marked as ${newStatus.toLowerCase()} successfully.`,
       type: newStatus === 'Approved' ? 'success' : 'info'
     });
   };
-
-  // Scope 1/2/3 breakdown data
-  const scopeData = [
-    { name: 'Scope 1 - Direct', value: 450, color: '#0F766E' },
-    { name: 'Scope 2 - Indirect', value: 520, color: '#0D9488' },
-    { name: 'Scope 3 - Value Chain', value: 270, color: '#14B8A6' },
-  ];
 
   return (
     <div className="space-y-6">
@@ -45,11 +75,11 @@ export default function ESGManagerDashboard() {
             <span className="p-1.5 bg-teal-50 text-teal-700 rounded-lg"><Leaf size={16} /></span>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-neutral-text-dark">1,240</span>
+            <span className="text-2xl font-black text-neutral-text-dark">{totalEmissions.toLocaleString()}</span>
             <span className="text-xs font-bold text-neutral-text-muted">t CO₂e</span>
           </div>
           <p className="text-[11px] text-emerald-600 font-bold mt-1.5 flex items-center gap-1">
-            <TrendingDown size={12} /> -8.2% vs last quarter
+            <TrendingDown size={12} /> Scope 1 + 2 + 3 logged
           </p>
         </div>
 
@@ -73,7 +103,7 @@ export default function ESGManagerDashboard() {
             <span className="p-1.5 bg-blue-50 text-blue-700 rounded-lg"><FileSpreadsheet size={16} /></span>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-neutral-text-dark">{mockEmissionFactors.length}</span>
+            <span className="text-2xl font-black text-neutral-text-dark">{factorCount}</span>
             <span className="text-xs font-bold text-neutral-text-muted">standards</span>
           </div>
           <p className="text-[11px] text-blue-600 font-bold mt-1.5">
@@ -87,10 +117,10 @@ export default function ESGManagerDashboard() {
             <span className="p-1.5 bg-indigo-50 text-indigo-700 rounded-lg"><ArrowUpRight size={16} /></span>
           </div>
           <div className="mt-3">
-            <span className="text-sm font-black text-neutral-text-dark">Human Resources</span>
+            <span className="text-sm font-black text-neutral-text-dark">{primaryReducer}</span>
           </div>
           <p className="text-[11px] text-emerald-600 font-bold mt-2">
-            Highest completion in zero waste
+            Top-ranked ESG department
           </p>
         </div>
       </div>
@@ -166,23 +196,20 @@ export default function ESGManagerDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-border">
-                {pendingTx.map((tx: any) => {
-                  const dept = mockDepartments.find(d => d.id === tx.departmentId);
-                  const emp = mockEmployees.find(e => e.id === tx.employeeId);
-                  const ef = mockEmissionFactors.find(f => f.id === tx.emissionFactorId);
+                {pendingTx.map((tx) => {
                   return (
                     <tr key={tx.id} className="hover:bg-neutral-bg transition-colors">
-                      <td className="p-3 font-mono font-semibold text-neutral-text-dark">{tx.id}</td>
+                      <td className="p-3 font-mono font-semibold text-neutral-text-dark">{tx.id.slice(0, 8)}</td>
                       <td className="p-3">
-                        <div className="font-medium text-neutral-text-dark">{emp?.name}</div>
-                        <div className="text-[10px] text-neutral-text-muted">{dept?.name}</div>
+                        <div className="font-medium text-neutral-text-dark">{tx.department}</div>
+                        <div className="text-[10px] text-neutral-text-muted">Logged entry</div>
                       </td>
                       <td className="p-3">
-                        <div className="font-medium text-neutral-text-dark">{ef?.name}</div>
-                        <div className="text-[10px] text-neutral-text-muted">Scope {ef?.scope} · {ef?.version}</div>
+                        <div className="font-medium text-neutral-text-dark">{tx.factorName}</div>
+                        <div className="text-[10px] text-neutral-text-muted">Scope {tx.scope}</div>
                       </td>
                       <td className="p-3 text-right font-mono text-neutral-text-dark">{tx.quantity}</td>
-                      <td className="p-3 text-right font-mono font-bold text-red-600">{tx.calculatedCo2e} t</td>
+                      <td className="p-3 text-right font-mono font-bold text-red-600">{tx.co2eTons.toFixed(3)} t</td>
                       <td className="p-3 font-mono text-neutral-text-muted">{tx.date}</td>
                       <td className="p-3 text-center">
                         <div className="flex items-center justify-center gap-1.5">

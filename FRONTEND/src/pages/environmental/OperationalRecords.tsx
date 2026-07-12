@@ -12,7 +12,7 @@ import ConfirmDialog from '../../components/ui-kit/ConfirmDialog';
 import StatusBadge from '../../components/ui-kit/StatusBadge';
 import SelectField from '../../components/ui/select-field';
 import { environmentalService, EmissionFactor } from '../../services/environmentalService';
-import { mockDepartments } from '../../mocks/db';
+import { reference } from '../../services/referenceData';
 
 export interface OperationalRecord {
   id: string;
@@ -44,6 +44,7 @@ export default function OperationalRecords() {
   // State
   const [records, setRecords] = useState<OperationalRecord[]>([]);
   const [emissionFactors, setEmissionFactors] = useState<EmissionFactor[]>([]);
+  const [departments, setDepartments] = useState<{ id: string; name: string }[]>([]);
   const [autoCalc, setAutoCalc] = useState<boolean>(true);
   const [loading, setLoading] = useState<boolean>(true);
 
@@ -91,6 +92,7 @@ export default function OperationalRecords() {
       setEmissionFactors(factors);
       setLoading(false);
     });
+    reference.departments().then((d) => setDepartments(d.map((x) => ({ id: x.id, name: x.name })))).catch(() => {});
   }, [searchParams]);
 
   const saveRecords = (updated: OperationalRecord[]) => {
@@ -399,7 +401,7 @@ export default function OperationalRecords() {
             onValueChange={setSelectedDept}
             options={[
               { value: 'All', label: 'All Departments' },
-              ...mockDepartments.map((department) => ({
+              ...departments.map((department) => ({
                 value: department.name,
                 label: department.name,
               })),
@@ -584,7 +586,7 @@ export default function OperationalRecords() {
             <SelectField
               value={formDeptName}
               onValueChange={setFormDeptName}
-              options={mockDepartments.map((department) => ({
+              options={departments.map((department) => ({
                 value: department.name,
                 label: department.name,
               }))}

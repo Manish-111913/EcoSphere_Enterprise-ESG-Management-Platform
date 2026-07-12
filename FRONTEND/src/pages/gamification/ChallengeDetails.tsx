@@ -2,8 +2,11 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { useSettings } from '../../context/SettingsContext';
-import { gamificationService, EnhancedParticipation } from '../../services/gamificationService';
 import { challengesService } from '../../services/challengesService';
+import { challengeParticipationsService, ChallengePart } from '../../services/challengeParticipationsService';
+import { badgesService } from '../../services/badgesService';
+import { reference } from '../../services/referenceData';
+import { useAuth } from '../../context/auth';
 import { Challenge, Employee } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -35,20 +38,19 @@ export default function ChallengeDetails() {
   const { user, role, refreshUser } = useApp();
   const { settings } = useSettings();
 
+  const { employeeId } = useAuth();
   const [challenge, setChallenge] = useState<Challenge | null>(null);
   const [challengeLoading, setChallengeLoading] = useState(true);
-  const employees = useMemo(() => gamificationService.getEmployees(), []);
-  
-  // Active employee ID based on current user session email
-  const currentEmployee = useMemo(() => {
-    if (!user) return null;
-    return employees.find(e => e.email === user.email) || null;
-  }, [user, employees]);
+  const [employees, setEmployees] = useState<{ id: string; name: string; email: string; avatar: string }[]>([]);
+  const [proofFile, setProofFile] = useState<File | null>(null);
+
+  // Active employee derived from the authenticated session.
+  const currentEmployee = employeeId ? { id: employeeId, email: user?.email ?? '' } : null;
 
   // States
   const [activeTab, setActiveTab] = useState<'overview' | 'participants' | 'timeline'>('overview');
-  const [participations, setParticipations] = useState<EnhancedParticipation[]>([]);
-  const [userParticipation, setUserParticipation] = useState<EnhancedParticipation | null>(null);
+  const [participations, setParticipations] = useState<ChallengePart[]>([]);
+  const [userParticipation, setUserParticipation] = useState<ChallengePart | null>(null);
   
   // Interactive Panel States (slider, upload)
   const [sliderVal, setSliderVal] = useState(0);
@@ -63,13 +65,12 @@ export default function ChallengeDetails() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Load participations list
-  const loadData = () => {
+  const loadData = async () => {
     if (!id) return;
-    const parts = gamificationService.getParticipationsByChallenge(id);
+    const parts = await challengeParticipationsService.byChallenge(id).catch(() => []);
     setParticipations(parts);
-    
-    if (currentEmployee) {
-      const uPart = parts.find(p => p.employeeId === currentEmployee.id);
+    if (employeeId) {
+      const uPart = parts.find(p => p.employeeId === employeeId);
       setUserParticipation(uPart || null);
       if (uPart) {
         setSliderVal(uPart.progress || 0);
@@ -79,8 +80,9 @@ export default function ChallengeDetails() {
   };
 
   useEffect(() => {
-    loadData();
-  }, [id, currentEmployee]);
+    void loadData();
+    reference.users().then((u) => setEmployees(u.map((x) => ({ id: x.id, name: x.name, email: x.email, avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(x.name)}&background=0D9488&color=fff` })))).catch(() => {});
+  }, [id, employeeId]);
 
   useEffect(() => {
     let active = true;
@@ -89,15 +91,6 @@ export default function ChallengeDetails() {
       if (!id) {
         if (active) {
           setChallenge(null);
-          setChallengeLoading(false);
-        }
-        return;
-      }
-
-      const localChallenge = gamificationService.getChallengeById(id);
-      if (localChallenge) {
-        if (active) {
-          setChallenge(localChallenge);
           setChallengeLoading(false);
         }
         return;
@@ -195,62 +188,50 @@ export default function ChallengeDetails() {
   };
 
   const processFile = (file: File) => {
-    setIsUploading(true);
-    // Simulate async server file upload
-    setTimeout(() => {
-      setIsUploading(false);
-      // Give a dummy Unsplash image that matches the challenge theme
-      const urls = [
-        'https://images.unsplash.com/photo-1542601906990-b4d3fb778b09?w=600',
-        'https://images.unsplash.com/photo-1532996122724-e3c354a0b15b?w=600',
-        'https://images.unsplash.com/photo-1506126613408-eca07ce68773?w=600',
-        'https://images.unsplash.com/photo-1548345680-f5475ea5df84?w=600'
-      ];
-      const randomUrl = urls[Math.floor(Math.random() * urls.length)];
-      setUploadedUrl(randomUrl);
-    }, 1200);
+    setProofFile(file); // real file, uploaded to the backend on submit
+    setUploadedUrl(URL.createObjectURL(file));
   };
 
   // Interactive Actions
-  const handleJoin = () => {
+  const handleJoin = async () => {
     if (!currentEmployee) return;
-    gamificationService.joinChallenge(challenge.id, currentEmployee.id);
-    loadData();
+    try {
+      await challengeParticipationsService.join(challenge.id);
+      await loadData();
+    } catch (err) {
+      setSubmitError((err as Error).message);
+    }
   };
 
-  const handleSliderRelease = () => {
-    if (!currentEmployee) return;
-    gamificationService.updateParticipationProgress(challenge.id, currentEmployee.id, sliderVal);
+  const handleSliderRelease = async () => {
+    if (!userParticipation) return;
+    await challengeParticipationsService.progress(userParticipation.id, sliderVal).catch(() => {});
   };
 
-  const handleSubmitProof = (e: React.FormEvent) => {
+  const handleSubmitProof = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError('');
 
-    if (!currentEmployee) {
-      setSubmitError('You must be logged in as an active employee.');
+    if (!currentEmployee || !userParticipation) {
+      setSubmitError('You must join the challenge before submitting proof.');
       return;
     }
-
-    if (settings.evidenceRequired && !uploadedUrl) {
+    if (settings.evidenceRequired && !proofFile) {
       setSubmitError('Verification proof file upload is required by company policy settings.');
       return;
     }
 
     try {
-      gamificationService.submitChallengeProof(challenge.id, currentEmployee.id, uploadedUrl, sliderVal);
-      setSubmitSuccess(true);
-      loadData();
-      
-      // Auto-award / evaluate badges if setting allows
-      if (settings.badgeAutoAward) {
-        const newlyEarned = gamificationService.checkAndAwardBadges(currentEmployee.id);
-        if (newlyEarned.length > 0) {
-          setNewBadges(newlyEarned);
-          setShowConfetti(true);
-        }
+      if (proofFile) {
+        await challengeParticipationsService.submitProof(userParticipation.id, proofFile, sliderVal);
       }
+      setSubmitSuccess(true);
+      await loadData();
 
+      // Auto-award evaluation (the backend also auto-awards on approval).
+      if (settings.badgeAutoAward) {
+        await badgesService.reevaluate(currentEmployee.id).catch(() => {});
+      }
       refreshUser();
     } catch (err: any) {
       setSubmitError(err.message || 'An error occurred during proof submission.');

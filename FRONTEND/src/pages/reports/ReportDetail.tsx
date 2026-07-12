@@ -1,20 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useToast } from '../../components/ui-kit/Toast';
 import {
   Leaf, Users, ShieldCheck, BarChart3, ChevronDown, Download, ArrowLeft,
-  Calendar, Building, FileSpreadsheet, Sparkles, Filter, RefreshCw
+  Filter, RefreshCw
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, LineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, ReferenceLine
 } from 'recharts';
 import { socialMetricsService } from '../../services/socialMetricsService';
-
-import {
-  mockDepartments, mockEmployees, mockChallenges, mockCarbonTransactions,
-  mockCsrActivities, mockComplianceIssues, mockPolicies, mockEmissionFactors
-} from '../../mocks/db';
+import { reportsService, ReportType, ReportFilters, ExportFormat } from '../../services/reportsService';
+import { reference, DeptRef, UserRef } from '../../services/referenceData';
 
 interface ExportRecord {
   id: string;
@@ -24,9 +21,16 @@ interface ExportRecord {
   size: string;
 }
 
+const STANDARD_TYPES: ReportType[] = ['environmental', 'social', 'governance', 'summary'];
+
 export default function ReportDetail() {
   const { type } = useParams<{ type: string }>();
   const { addToast } = useToast();
+
+  // Normalize the route param to one of the four standard reports.
+  const reportType: ReportType = STANDARD_TYPES.includes(type as ReportType)
+    ? (type as ReportType)
+    : 'summary';
 
   // 1. FILTER STATES (ALL SIX FILTERS)
   const [filterDept, setFilterDept] = useState('');
@@ -40,6 +44,17 @@ export default function ReportDetail() {
   // Dropdown states
   const [exportOpen, setExportOpen] = useState(false);
 
+  // Real backend data
+  const [rows, setRows] = useState<Record<string, unknown>[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // Reference data for dropdowns + id→name mapping
+  const [depts, setDepts] = useState<DeptRef[]>([]);
+  const [users, setUsers] = useState<UserRef[]>([]);
+  const deptName = (id: unknown): string =>
+    depts.find(d => d.id === id)?.name || 'Organization-wide';
+
   // Load weights from settings if exists
   const [weights, setWeights] = useState({ e: 40, s: 30, g: 30 });
   useEffect(() => {
@@ -49,52 +64,121 @@ export default function ReportDetail() {
     }
   }, []);
 
+  // Load reference data once for filter dropdowns and name resolution
+  useEffect(() => {
+    let active = true;
+    Promise.all([reference.departments(), reference.users()])
+      .then(([d, u]) => {
+        if (!active) return;
+        setDepts(d);
+        setUsers(u);
+      })
+      .catch(() => { /* dropdowns simply stay empty */ });
+    return () => { active = false; };
+  }, []);
+
+  // Build the backend filter payload from the current filter state
+  const buildFilters = useCallback((): ReportFilters => ({
+    department: filterDept || undefined,
+    dateFrom: filterStartDate || undefined,
+    dateTo: filterEndDate || undefined,
+    module: filterModule || undefined,
+    employee: filterEmployee || undefined,
+    challenge: filterChallenge || undefined,
+    esgCategory: filterCategory || undefined,
+  }), [filterDept, filterStartDate, filterEndDate, filterModule, filterEmployee, filterChallenge, filterCategory]);
+
+  // Load the matching standard report whenever the type changes or Apply Query is pressed
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    reportsService.getStandard(reportType, buildFilters())
+      .then(res => {
+        if (!active) return;
+        setRows(res.rows ?? []);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setRows([]);
+        addToast({
+          title: 'Could not load report',
+          description: err?.message || 'The report data could not be retrieved.',
+          type: 'error',
+        });
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+    // buildFilters intentionally read only on type change / explicit Apply (reloadKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reportType, reloadKey]);
+
   // Title and layout based on type
   const reportInfo = {
-    title: type === 'environmental' ? 'Environmental Report' :
-           type === 'social' ? 'Social Report' :
-           type === 'governance' ? 'Governance Report' : 'ESG Executive Summary',
-    badge: type === 'environmental' ? 'Scope 1/2/3' :
-           type === 'social' ? 'CSR Engagement' :
-           type === 'governance' ? 'Audit & Signoffs' : 'Corporate Index',
-    icon: type === 'environmental' ? <Leaf className="h-5 w-5 text-emerald-600" /> :
-          type === 'social' ? <Users className="h-5 w-5 text-teal-600" /> :
-          type === 'governance' ? <ShieldCheck className="h-5 w-5 text-indigo-600" /> :
+    title: reportType === 'environmental' ? 'Environmental Report' :
+           reportType === 'social' ? 'Social Report' :
+           reportType === 'governance' ? 'Governance Report' : 'ESG Executive Summary',
+    badge: reportType === 'environmental' ? 'Scope 1/2/3' :
+           reportType === 'social' ? 'CSR Engagement' :
+           reportType === 'governance' ? 'Audit & Signoffs' : 'Corporate Index',
+    icon: reportType === 'environmental' ? <Leaf className="h-5 w-5 text-emerald-600" /> :
+          reportType === 'social' ? <Users className="h-5 w-5 text-teal-600" /> :
+          reportType === 'governance' ? <ShieldCheck className="h-5 w-5 text-indigo-600" /> :
           <BarChart3 className="h-5 w-5 text-slate-700" />,
-    color: type === 'environmental' ? 'teal' :
-           type === 'social' ? 'indigo' :
-           type === 'governance' ? 'rose' : 'emerald'
+    color: reportType === 'environmental' ? 'teal' :
+           reportType === 'social' ? 'indigo' :
+           reportType === 'governance' ? 'rose' : 'emerald'
   };
 
-  const handleExport = (format: 'PDF' | 'Excel' | 'CSV') => {
+  const triggerDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExport = async (format: 'PDF' | 'Excel' | 'CSV') => {
     setExportOpen(false);
-    
-    // Generate simulated export metadata
-    const expId = `EXP-${Math.floor(1000 + Math.random() * 9000)}`;
-    const docName = `${reportInfo.title} - ${new Date().toISOString().split('T')[0]}`;
-    const timestamp = new Date().toISOString().replace('T', ' ').substring(0, 16);
-    const size = format === 'PDF' ? '1.8 MB' : format === 'Excel' ? '820 KB' : '150 KB';
+    const backendFormat: ExportFormat = format === 'PDF' ? 'pdf' : format === 'Excel' ? 'xlsx' : 'csv';
+    const ext = backendFormat === 'xlsx' ? 'xlsx' : backendFormat;
 
-    const newExport: ExportRecord = {
-      id: expId,
-      name: docName,
-      format,
-      timestamp,
-      size
-    };
+    try {
+      const blob = await reportsService.requestExport({
+        report: reportType,
+        format: backendFormat,
+        filters: buildFilters(),
+      });
 
-    // Save to Recent Exports
-    const cached = localStorage.getItem('ecosphere_recent_exports');
-    const list = cached ? JSON.parse(cached) : [];
-    const updated = [newExport, ...list];
-    localStorage.setItem('ecosphere_recent_exports', JSON.stringify(updated));
+      const filename = `${reportType}-report.${ext}`;
+      triggerDownload(blob, filename);
 
-    // Toast
-    addToast({
-      title: 'Export ready',
-      description: `Your ${format} document is compiled and ready for download.`,
-      type: 'success'
-    });
+      // Persist to Recent Exports for continuity with the UI
+      const newExport: ExportRecord = {
+        id: `EXP-${Math.floor(1000 + Math.random() * 9000)}`,
+        name: `${reportInfo.title} - ${new Date().toISOString().split('T')[0]}`,
+        format,
+        timestamp: new Date().toISOString().replace('T', ' ').substring(0, 16),
+        size: `${Math.max(1, Math.round(blob.size / 1024))} KB`,
+      };
+      const cached = localStorage.getItem('ecosphere_recent_exports');
+      const list = cached ? JSON.parse(cached) : [];
+      localStorage.setItem('ecosphere_recent_exports', JSON.stringify([newExport, ...list]));
+
+      addToast({
+        title: 'Export ready',
+        description: `Your ${format} document has been compiled and downloaded.`,
+        type: 'success'
+      });
+    } catch (err: any) {
+      addToast({
+        title: 'Export failed',
+        description: err?.message || `The ${format} export could not be generated.`,
+        type: 'error'
+      });
+    }
   };
 
   const handleResetFilters = () => {
@@ -105,146 +189,77 @@ export default function ReportDetail() {
     setFilterEmployee('');
     setFilterChallenge('');
     setFilterCategory('');
+    setReloadKey(k => k + 1);
   };
 
+  const handleApplyQuery = () => setReloadKey(k => k + 1);
+
   // ---------------------------------
-  // 2. DATA PROCESSING & MOCK DATATABLE LISTS
+  // 2. DATATABLE HEADERS + CELL RENDERERS (real backend columns)
   // ---------------------------------
-  let displayRows: any[] = [];
   let tableHeaders: string[] = [];
-  let renderRowCells = (row: any) => null;
+  let renderRowCells: (row: Record<string, unknown>) => React.ReactNode = () => null;
 
-  if (type === 'environmental') {
-    // Filter Carbon Transactions
-    let filtered = mockCarbonTransactions;
-    if (filterDept) filtered = filtered.filter(t => t.departmentId === filterDept);
-    if (filterEmployee) filtered = filtered.filter(t => t.employeeId === filterEmployee);
-    if (filterCategory) {
-      // Category matches Scope
-      filtered = filtered.filter(t => {
-        const ef = mockEmissionFactors.find(f => f.id === t.emissionFactorId);
-        return ef?.scope.toString() === filterCategory;
-      });
-    }
-    // Date Range filters
-    if (filterStartDate) filtered = filtered.filter(t => t.date >= filterStartDate);
-    if (filterEndDate) filtered = filtered.filter(t => t.date <= filterEndDate);
-
-    displayRows = filtered;
-    tableHeaders = ['ID', 'Department', 'Logged By', 'Factor / standard', 'Quantity', 'Scope', 'Total CO₂e', 'Status'];
-    renderRowCells = (tx: any) => {
-      const dept = mockDepartments.find(d => d.id === tx.departmentId);
-      const emp = mockEmployees.find(e => e.id === tx.employeeId);
-      const ef = mockEmissionFactors.find(f => f.id === tx.emissionFactorId);
+  if (reportType === 'environmental') {
+    tableHeaders = ['Date', 'Department', 'Category', 'Quantity', 'Total CO₂e', 'Mode'];
+    renderRowCells = (tx) => (
+      <>
+        <td className="p-3 font-mono font-semibold text-neutral-text-dark">{String(tx.occurredAt ?? '')}</td>
+        <td className="p-3 font-semibold text-neutral-text-dark">{deptName(tx.departmentId)}</td>
+        <td className="p-3 text-center">
+          <span className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-full font-bold">
+            {String(tx.category ?? '—')}
+          </span>
+        </td>
+        <td className="p-3 font-mono text-neutral-text-dark text-right">{String(tx.quantity ?? '')}</td>
+        <td className="p-3 font-mono font-bold text-red-600 text-right">{Number(tx.co2eKg ?? 0).toLocaleString()} kg</td>
+        <td className="p-3 text-center">
+          <span className="text-[10px] bg-neutral-bg text-neutral-text-muted border border-neutral-border px-2 py-0.5 rounded-full font-bold">
+            {String(tx.mode ?? '—')}
+          </span>
+        </td>
+      </>
+    );
+  } else if (reportType === 'social') {
+    tableHeaders = ['Activity', 'Employee', 'Department', 'Status', 'Points'];
+    renderRowCells = (act) => (
+      <>
+        <td className="p-3 font-semibold text-neutral-text-dark">{String(act.activity ?? '')}</td>
+        <td className="p-3 text-neutral-text-muted">{String(act.employee ?? '')}</td>
+        <td className="p-3 font-semibold text-neutral-text-dark">{deptName(act.departmentId)}</td>
+        <td className="p-3 text-center">
+          <span className="text-[10px] bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-full font-bold">
+            {String(act.status ?? '—')}
+          </span>
+        </td>
+        <td className="p-3 font-mono text-emerald-600 text-right">+{String(act.pointsEarned ?? 0)} pts</td>
+      </>
+    );
+  } else if (reportType === 'governance') {
+    tableHeaders = ['Issue Title', 'Severity', 'Owner', 'Status', 'Due Date', 'Overdue Alert'];
+    renderRowCells = (issue) => {
+      const severity = String(issue.severity ?? '');
       return (
         <>
-          <td className="p-3 font-mono font-semibold text-neutral-text-dark">{tx.id}</td>
-          <td className="p-3 font-semibold text-neutral-text-dark">{dept?.name || 'Corporate'}</td>
-          <td className="p-3 text-neutral-text-muted">{emp?.name || 'Automated'}</td>
-          <td className="p-3">
-            <div className="font-semibold text-neutral-text-dark">{ef?.name}</div>
-            <div className="text-[10px] text-neutral-text-muted">{ef?.version}</div>
-          </td>
-          <td className="p-3 font-mono text-neutral-text-dark text-right">{tx.quantity}</td>
-          <td className="p-3 text-center">
-            <span className="text-[10px] bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-0.5 rounded-full font-bold">
-              Scope {ef?.scope || 1}
-            </span>
-          </td>
-          <td className="p-3 font-mono font-bold text-red-600 text-right">{tx.calculatedCo2e} t</td>
-          <td className="p-3 text-center">
-            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-              tx.status === 'Approved' ? 'bg-emerald-100 text-emerald-800' :
-              tx.status === 'Pending' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-800'
-            }`}>
-              {tx.status}
-            </span>
-          </td>
-        </>
-      );
-    };
-  } else if (type === 'social') {
-    // Filter CSR activities / challenges completion
-    let filtered = mockCsrActivities;
-    if (filterDept) {
-      // Mock filtering based on department
-    }
-    if (filterCategory) {
-      filtered = filtered.filter(a => a.category === filterCategory);
-    }
-
-    displayRows = filtered;
-    tableHeaders = ['Activity ID', 'Title', 'Category', 'Capacity Progress', 'Points Reward', 'XP Reward', 'Status'];
-    renderRowCells = (act: any) => {
-      return (
-        <>
-          <td className="p-3 font-mono font-semibold text-neutral-text-dark">{act.id.toUpperCase()}</td>
-          <td className="p-3">
-            <div className="font-semibold text-neutral-text-dark">{act.title}</div>
-            <p className="text-[10px] text-neutral-text-muted leading-tight">{act.description}</p>
-          </td>
-          <td className="p-3 text-center">
-            <span className="text-[10px] bg-teal-50 text-teal-800 border border-teal-200 px-2 py-0.5 rounded-full font-bold">
-              {act.category}
-            </span>
-          </td>
-          <td className="p-3">
-            <div className="flex items-center gap-2">
-              <div className="w-20 bg-neutral-bg border border-neutral-border rounded-full h-2 overflow-hidden">
-                <div className="bg-primary-teal h-full" style={{ width: '70%' }} />
-              </div>
-              <span className="text-[10px] text-neutral-text-muted font-bold">70%</span>
-            </div>
-          </td>
-          <td className="p-3 font-mono text-neutral-text-dark text-right">+{act.points} pts</td>
-          <td className="p-3 font-mono text-emerald-600 text-right">+{act.xp} XP</td>
-          <td className="p-3 text-center">
-            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-              act.status === 'Active' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-            }`}>
-              {act.status}
-            </span>
-          </td>
-        </>
-      );
-    };
-  } else if (type === 'governance') {
-    // Compliance issues / Policy sign-offs
-    let filtered = mockComplianceIssues;
-    if (filterDept) {
-      // Issues linked to department heads
-    }
-    if (filterCategory) {
-      filtered = filtered.filter(i => i.severity === filterCategory);
-    }
-    displayRows = filtered;
-    tableHeaders = ['ID', 'Issue Title', 'Severity', 'Due Date', 'Status', 'Overdue Alert', 'Owner'];
-    renderRowCells = (issue: any) => {
-      const owner = mockEmployees.find(e => e.id === issue.ownerId);
-      return (
-        <>
-          <td className="p-3 font-mono font-semibold text-neutral-text-dark">{issue.id.toUpperCase()}</td>
-          <td className="p-3">
-            <div className="font-semibold text-neutral-text-dark">{issue.title}</div>
-            <p className="text-[10px] text-neutral-text-muted leading-tight">{issue.description}</p>
-          </td>
+          <td className="p-3 font-semibold text-neutral-text-dark">{String(issue.title ?? '')}</td>
           <td className="p-3 text-center">
             <span className={`px-2 py-0.5 rounded-full font-bold text-[9px] ${
-              issue.severity === 'Critical' ? 'bg-red-50 text-red-800 border border-red-100' :
-              issue.severity === 'High' ? 'bg-orange-50 text-orange-800' :
+              severity === 'Critical' ? 'bg-red-50 text-red-800 border border-red-100' :
+              severity === 'High' ? 'bg-orange-50 text-orange-800' :
               'bg-yellow-50 text-yellow-800'
             }`}>
-              {issue.severity}
+              {severity || '—'}
             </span>
           </td>
-          <td className="p-3 font-mono text-neutral-text-muted">{issue.dueDate}</td>
+          <td className="p-3 font-medium text-neutral-text-dark">{String(issue.owner ?? 'Compliance Team')}</td>
           <td className="p-3 text-center">
             <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
               issue.status === 'Resolved' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
             }`}>
-              {issue.status}
+              {String(issue.status ?? '—')}
             </span>
           </td>
+          <td className="p-3 font-mono text-neutral-text-muted">{String(issue.dueDate ?? '')}</td>
           <td className="p-3 text-center">
             {issue.isOverdue ? (
               <span className="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200 px-2 py-0.5 rounded-full animate-pulse">Overdue alert</span>
@@ -252,31 +267,27 @@ export default function ReportDetail() {
               <span className="text-[9px] font-bold text-neutral-text-muted bg-neutral-bg px-2 py-0.5 rounded-full">On schedule</span>
             )}
           </td>
-          <td className="p-3 font-medium text-neutral-text-dark">{owner?.name || 'Compliance Team'}</td>
         </>
       );
     };
   } else {
     // ESG Executive Summary: Department Performance
-    displayRows = mockDepartments;
-    tableHeaders = ['Code', 'Department', 'E Score', 'S Score', 'G Score', 'Total Index', 'Head Manager'];
-    renderRowCells = (dept: any) => {
-      return (
-        <>
-          <td className="p-3 font-mono font-semibold text-neutral-text-dark">{dept.code}</td>
-          <td className="p-3 font-bold text-neutral-text-dark">{dept.name}</td>
-          <td className="p-3 text-center font-mono text-emerald-600 font-bold">88</td>
-          <td className="p-3 text-center font-mono text-teal-600 font-bold">82</td>
-          <td className="p-3 text-center font-mono text-indigo-600 font-bold">91</td>
-          <td className="p-3 text-right font-mono font-black text-neutral-text-dark">87.2</td>
-          <td className="p-3 text-neutral-text-muted font-medium">{dept.head}</td>
-        </>
-      );
-    };
+    tableHeaders = ['Department', 'E Score', 'S Score', 'G Score', 'Total Index'];
+    renderRowCells = (dept) => (
+      <>
+        <td className="p-3 font-bold text-neutral-text-dark">{String(dept.department ?? '')}</td>
+        <td className="p-3 text-center font-mono text-emerald-600 font-bold">{Number(dept.e ?? 0).toFixed(1)}</td>
+        <td className="p-3 text-center font-mono text-teal-600 font-bold">{Number(dept.s ?? 0).toFixed(1)}</td>
+        <td className="p-3 text-center font-mono text-indigo-600 font-bold">{Number(dept.g ?? 0).toFixed(1)}</td>
+        <td className="p-3 text-right font-mono font-black text-neutral-text-dark">{Number(dept.total ?? 0).toFixed(1)}</td>
+      </>
+    );
   }
 
+  const displayRows = rows;
+
   // ---------------------------------
-  // 3. RECHARTS METRIC DATASETS
+  // 3. RECHARTS METRIC DATASETS (illustrative summary trends)
   // ---------------------------------
   const emissionsSummaryData = [
     { month: 'Jan', Scope1: 42, Scope2: 38, Scope3: 15 },
@@ -390,7 +401,7 @@ export default function ReportDetail() {
               className="w-full border border-neutral-border rounded-lg px-2.5 py-1.5 text-xs bg-white text-neutral-text-dark focus:ring-1 focus:ring-primary-teal"
             >
               <option value="">All Departments</option>
-              {mockDepartments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              {depts.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           </div>
 
@@ -441,14 +452,14 @@ export default function ReportDetail() {
               className="w-full border border-neutral-border rounded-lg px-2.5 py-1.5 text-xs bg-white text-neutral-text-dark focus:ring-1 focus:ring-primary-teal"
             >
               <option value="">All Employees</option>
-              {mockEmployees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+              {users.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
             </select>
           </div>
 
           {/* 6. Challenge / ESG Category */}
           <div className="space-y-1">
             <label className="text-[10px] uppercase font-bold text-neutral-text-muted block">
-              {type === 'environmental' ? 'Scope Rating' : type === 'social' ? 'Category' : type === 'governance' ? 'Severity' : 'ESG Metric'}
+              {reportType === 'environmental' ? 'Scope Rating' : reportType === 'social' ? 'Category' : reportType === 'governance' ? 'Severity' : 'ESG Metric'}
             </label>
             <select
               value={filterCategory}
@@ -456,21 +467,21 @@ export default function ReportDetail() {
               className="w-full border border-neutral-border rounded-lg px-2.5 py-1.5 text-xs bg-white text-neutral-text-dark focus:ring-1 focus:ring-primary-teal"
             >
               <option value="">All Targets</option>
-              {type === 'environmental' && (
+              {reportType === 'environmental' && (
                 <>
                   <option value="1">Scope 1 (Direct)</option>
                   <option value="2">Scope 2 (Indirect)</option>
                   <option value="3">Scope 3 (Supply Chain)</option>
                 </>
               )}
-              {type === 'social' && (
+              {reportType === 'social' && (
                 <>
                   <option value="Zero Waste">Zero Waste</option>
                   <option value="Clean Energy">Clean Energy</option>
                   <option value="Eco Mobility">Eco Mobility</option>
                 </>
               )}
-              {type === 'governance' && (
+              {reportType === 'governance' && (
                 <>
                   <option value="Critical">Critical</option>
                   <option value="High">High</option>
@@ -488,7 +499,10 @@ export default function ReportDetail() {
           >
             Reset Filters
           </button>
-          <button className="px-4 py-1.5 bg-primary-teal/10 hover:bg-primary-teal/20 text-primary-teal text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5">
+          <button
+            onClick={handleApplyQuery}
+            className="px-4 py-1.5 bg-primary-teal/10 hover:bg-primary-teal/20 text-primary-teal text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5"
+          >
             <RefreshCw size={13} /> Apply Query
           </button>
         </div>
@@ -498,7 +512,7 @@ export default function ReportDetail() {
           4. 2-3 CHARTS CARD ROW
          --------------------------------- */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {type === 'environmental' && (
+        {reportType === 'environmental' && (
           <>
             {/* Environmental Charts */}
             <div className="bg-white border border-neutral-border rounded-xl p-5 shadow-sm flex flex-col justify-between">
@@ -551,7 +565,7 @@ export default function ReportDetail() {
           </>
         )}
 
-        {type === 'social' && (
+        {reportType === 'social' && (
           <>
             {/* Social Charts */}
             <div className="bg-white border border-neutral-border rounded-xl p-5 shadow-sm flex flex-col justify-between">
@@ -623,7 +637,7 @@ export default function ReportDetail() {
           </>
         )}
 
-        {type === 'governance' && (
+        {reportType === 'governance' && (
           <>
             {/* Governance Charts */}
             <div className="bg-white border border-neutral-border rounded-xl p-5 shadow-sm flex flex-col justify-between">
@@ -666,7 +680,7 @@ export default function ReportDetail() {
           </>
         )}
 
-        {type === 'summary' && (
+        {reportType === 'summary' && (
           <>
             {/* ESG SUMMARY SPECIAL TREND CHART */}
             <div className="bg-white border border-neutral-border rounded-xl p-5 shadow-sm flex flex-col justify-between col-span-2">
@@ -712,19 +726,26 @@ export default function ReportDetail() {
             <thead>
               <tr className="border-b border-neutral-border text-neutral-text-muted bg-neutral-bg">
                 {tableHeaders.map((h, i) => (
-                  <th key={i} className={`p-3 font-semibold ${h === 'Quantity' || h === 'Total CO₂e' || h === 'Total Index' ? 'text-right' : ''}`}>
+                  <th key={i} className={`p-3 font-semibold ${h === 'Quantity' || h === 'Total CO₂e' || h === 'Total Index' || h === 'Points' ? 'text-right' : ''}`}>
                     {h}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-border">
-              {displayRows.map((row, idx) => (
+              {loading && (
+                <tr>
+                  <td colSpan={tableHeaders.length} className="p-8 text-center text-neutral-text-muted">
+                    Loading report data…
+                  </td>
+                </tr>
+              )}
+              {!loading && displayRows.map((row, idx) => (
                 <tr key={idx} className="hover:bg-neutral-bg/30 transition-colors">
                   {renderRowCells(row)}
                 </tr>
               ))}
-              {displayRows.length === 0 && (
+              {!loading && displayRows.length === 0 && (
                 <tr>
                   <td colSpan={tableHeaders.length} className="p-8 text-center text-neutral-text-muted">
                     No matching ledger items found for the active query filters.

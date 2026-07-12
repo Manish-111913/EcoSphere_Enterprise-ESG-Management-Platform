@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { socialGovernanceService } from '../../services/socialGovernanceService';
+import { auditsService, AuditView } from '../../services/auditsService';
 import { useToast } from '../../components/ui-kit/Toast';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -27,17 +27,19 @@ export default function Audits() {
   const { role } = useApp();
   const { addToast } = useToast();
 
-  const audits = socialGovernanceService.getAudits();
+  const [audits, setAudits] = useState<AuditView[]>([]);
   const [selectedAudit, setSelectedAudit] = useState<any | null>(null);
-  
+
   // Drawer editing state
   const [findings, setFindings] = useState('');
   const [auditScore, setAuditScore] = useState<number | ''>('');
   const [auditStatus, setAuditStatus] = useState<'Scheduled' | 'In Progress' | 'Completed' | 'Cancelled'>('Scheduled');
 
-  // Force re-renders for updates
-  const [, setTick] = useState(0);
-  const forceUpdate = () => setTick(t => t + 1);
+  const reload = useCallback(async () => {
+    setAudits(await auditsService.getAudits().catch(() => []));
+  }, []);
+  useEffect(() => { void reload(); }, [reload]);
+  const forceUpdate = () => { void reload(); };
 
   const isAuditorOrAdmin = role === 'Admin' || role === 'Compliance Officer' || role === 'Auditor';
 
@@ -48,34 +50,22 @@ export default function Audits() {
     setAuditStatus(audit.status);
   };
 
-  const handleSaveAudit = () => {
+  const handleSaveAudit = async () => {
     if (!selectedAudit) return;
 
     const scoreNum = auditScore === '' ? undefined : Number(auditScore);
     if (scoreNum !== undefined && (scoreNum < 0 || scoreNum > 100)) {
-      addToast({
-        title: 'Validation Error',
-        description: 'Audit score must be a percentage between 0 and 100.',
-        type: 'danger'
-      });
+      addToast({ title: 'Validation Error', description: 'Audit score must be a percentage between 0 and 100.', type: 'danger' });
       return;
     }
-
-    const updated: any = {
-      ...selectedAudit,
-      status: auditStatus,
-      findings,
-      auditScore: scoreNum
-    };
-
-    socialGovernanceService.updateAudit(updated);
-    addToast({
-      title: 'Audit Saved Successfully',
-      description: `The audit ${selectedAudit.title} has been updated.`,
-      type: 'success'
-    });
-    setSelectedAudit(updated);
-    forceUpdate();
+    try {
+      const updated = await auditsService.save(selectedAudit.id, selectedAudit.status, { status: auditStatus, findings, auditScore: scoreNum });
+      addToast({ title: 'Audit Saved Successfully', description: `The audit ${selectedAudit.title} has been updated.`, type: 'success' });
+      setSelectedAudit(updated);
+      await reload();
+    } catch (err) {
+      addToast({ title: 'Could not save audit', description: (err as Error).message, type: 'danger' });
+    }
   };
 
   const handleRaiseIssue = () => {

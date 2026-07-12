@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import { 
-  FolderTree, Plus, Search, Edit, Trash2, Heart, Award, Shield, Sparkles, 
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import {
+  FolderTree, Plus, Search, Edit, Trash2, Heart, Award, Shield, Sparkles,
   Settings, Check, LayoutGrid, CheckSquare, Layers, HelpCircle, Palette, ChevronRight
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
@@ -8,9 +8,43 @@ import { useToast } from '../../components/ui-kit/Toast';
 import FormDrawer from '../../components/ui-kit/FormDrawer';
 import ConfirmDialog from '../../components/ui-kit/ConfirmDialog';
 import StatusBadge from '../../components/ui-kit/StatusBadge';
-import { CategoryItem, categoryStore, useCategories } from '../../mocks/categoryStore';
-import { socialGovernanceService } from '../../services/socialGovernanceService';
-import { gamificationService } from '../../services/gamificationService';
+import { api } from '../../services/apiClient';
+
+// ─────────────── types & backend mapping ───────────────
+// UI tab type ↔ backend Category.type
+type CategoryUiType = 'csr' | 'challenge';
+const UI_TO_BACKEND: Record<CategoryUiType, 'CSR_ACTIVITY' | 'CHALLENGE'> = {
+  csr: 'CSR_ACTIVITY',
+  challenge: 'CHALLENGE',
+};
+
+/** Raw category row from GET /categories. */
+interface BackendCategory {
+  id: string;
+  name: string;
+  type: 'CSR_ACTIVITY' | 'CHALLENGE';
+  description: string | null;
+  isActive: boolean;
+}
+
+/**
+ * View model for the registry cards. The backend Category model only persists
+ * { id, name, type, description, isActive } — `code`, `color` and `icon` are
+ * cosmetic, derived deterministically here so the existing UI stays intact.
+ */
+export interface CategoryItem {
+  id: string;
+  type: CategoryUiType;
+  name: string;
+  code: string;
+  description: string;
+  color: string;
+  icon: string;
+  status: 'Active' | 'Inactive';
+}
+
+const errorMessage = (e: unknown, fallback: string): string =>
+  e instanceof Error && e.message ? e.message : fallback;
 
 const PRESET_COLORS = [
   '#10B981', // Emerald
@@ -27,12 +61,54 @@ const PRESET_ICONS = [
   'Leaf', 'Sun', 'Trash2', 'Heart', 'Users', 'Zap', 'Award', 'Activity', 'Flag', 'Shield', 'Globe', 'BookOpen'
 ];
 
+// Deterministic accent color for a category id (backend does not store color).
+const colorForId = (id: string): string => {
+  const sum = [...id].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  return PRESET_COLORS[sum % PRESET_COLORS.length];
+};
+
+// Derive a display code from the name (backend does not store a code).
+const codeFromName = (name: string): string =>
+  name.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12) || 'CATEGORY';
+
+const toCategoryItem = (c: BackendCategory): CategoryItem => ({
+  id: c.id,
+  type: c.type === 'CSR_ACTIVITY' ? 'csr' : 'challenge',
+  name: c.name,
+  code: codeFromName(c.name),
+  description: c.description ?? '',
+  color: colorForId(c.id),
+  icon: 'Leaf',
+  status: c.isActive ? 'Active' : 'Inactive',
+});
+
+/** Fetch every row of a paginated list endpoint, returning just category refs. */
+async function fetchAllCategoryRefs(path: string): Promise<Array<{ categoryId?: string | null }>> {
+  const out: Array<{ categoryId?: string | null }> = [];
+  let page = 1;
+  // Bounded loop; break as soon as a short page arrives.
+  for (let i = 0; i < 200; i++) {
+    const res = await api.get<{ data: Array<{ categoryId?: string | null }> }>(
+      `${path}?page=${page}&size=100`,
+    );
+    const rows = Array.isArray(res)
+      ? (res as unknown as Array<{ categoryId?: string | null }>)
+      : res?.data ?? [];
+    out.push(...rows);
+    if (rows.length < 100) break;
+    page += 1;
+  }
+  return out;
+}
+
 export default function Categories() {
   const { role } = useApp();
   const { addToast } = useToast();
 
-  // State — categories come from the shared live store
-  const categories = useCategories();
+  // State — categories loaded from the real backend (GET /categories)
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [usageById, setUsageById] = useState<Record<string, number>>({});
   const [activeTab, setActiveTab] = useState<'csr' | 'challenge'>('csr');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -55,25 +131,44 @@ export default function Categories() {
   const [isDeleteBlocked, setIsDeleteBlocked] = useState(false);
   const [blockedMessage, setBlockedMessage] = useState('');
 
-  const saveCategories = (updated: CategoryItem[]) => {
-    categoryStore.save(updated);
-  };
+  // Load categories from GET /categories.
+  const reload = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const rows = await api.get<BackendCategory[]>('/categories');
+      const list = Array.isArray(rows) ? rows : ((rows as { data?: BackendCategory[] })?.data ?? []);
+      setCategories(list.map(toCategoryItem));
+    } catch (e) {
+      addToast(errorMessage(e, 'Failed to load categories'), 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [addToast]);
 
-  // Usage count — how many activities / challenges reference each category by name.
+  // Usage count — how many CSR activities / challenges reference each category id.
   // Drives the "In use" badge and the delete-block guard.
-  const usageByName = useMemo(() => {
-    const counts: Record<string, number> = {};
-    socialGovernanceService.getActivities().forEach(act => {
-      if (act.category) counts[act.category] = (counts[act.category] || 0) + 1;
-    });
-    gamificationService.getChallenges().forEach(ch => {
-      const c = (ch as { category?: string }).category;
-      if (c) counts[c] = (counts[c] || 0) + 1;
-    });
-    return counts;
-  }, [categories]);
+  const loadUsage = useCallback(async () => {
+    try {
+      const [activities, challenges] = await Promise.all([
+        fetchAllCategoryRefs('/csr-activities').catch(() => [] as Array<{ categoryId?: string | null }>),
+        fetchAllCategoryRefs('/challenges').catch(() => [] as Array<{ categoryId?: string | null }>),
+      ]);
+      const counts: Record<string, number> = {};
+      [...activities, ...challenges].forEach(row => {
+        if (row.categoryId) counts[row.categoryId] = (counts[row.categoryId] || 0) + 1;
+      });
+      setUsageById(counts);
+    } catch {
+      /* usage is best-effort; leave counts empty on failure */
+    }
+  }, []);
 
-  const getUsage = (cat: CategoryItem) => usageByName[cat.name] || 0;
+  useEffect(() => {
+    reload();
+    loadUsage();
+  }, [reload, loadUsage]);
+
+  const getUsage = (cat: CategoryItem) => usageById[cat.id] || 0;
 
   // Unique Code Validation
   const codeError = useMemo(() => {
@@ -112,8 +207,8 @@ export default function Categories() {
     setIsFormOpen(true);
   };
 
-  // Save Category item
-  const handleSaveCategory = (e: React.FormEvent) => {
+  // Save Category item — POST /categories (create) or PUT /categories/:id (edit).
+  const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName || !formCode || !formDescription) {
       addToast('Please fill in all required fields', 'warning');
@@ -125,40 +220,29 @@ export default function Categories() {
       return;
     }
 
-    if (formMode === 'create') {
-      const newItem: CategoryItem = {
-        id: `cat-${Date.now()}`,
-        type: activeTab,
-        name: formName,
-        code: formCode.toUpperCase().replace(/\s+/g, ''),
-        description: formDescription,
-        color: formColor,
-        icon: formIcon,
-        status: formStatus ? 'Active' : 'Inactive'
-      };
-      const updated = [newItem, ...categories];
-      saveCategories(updated);
-      addToast('Category created successfully', 'success');
-    } else {
-      const updated = categories.map(cat => {
-        if (cat.id === editingId) {
-          return {
-            ...cat,
-            name: formName,
-            code: formCode.toUpperCase().replace(/\s+/g, ''),
-            description: formDescription,
-            color: formColor,
-            icon: formIcon,
-            status: (formStatus ? 'Active' : 'Inactive') as 'Active' | 'Inactive'
-          };
-        }
-        return cat;
-      });
-      saveCategories(updated);
-      addToast('Category updated successfully', 'success');
+    try {
+      if (formMode === 'create') {
+        await api.post('/categories', {
+          name: formName,
+          type: UI_TO_BACKEND[activeTab],
+          description: formDescription,
+          isActive: formStatus,
+        });
+        addToast('Category created successfully', 'success');
+      } else if (editingId) {
+        // type is immutable server-side; only mutable fields are sent.
+        await api.put(`/categories/${editingId}`, {
+          name: formName,
+          description: formDescription,
+          isActive: formStatus,
+        });
+        addToast('Category updated successfully', 'success');
+      }
+      setIsFormOpen(false);
+      await Promise.all([reload(), loadUsage()]);
+    } catch (err) {
+      addToast(errorMessage(err, 'Failed to save category'), 'error');
     }
-
-    setIsFormOpen(false);
   };
 
   // Delete category attempt — blocked when the category is still in use
@@ -178,25 +262,31 @@ export default function Categories() {
     setIsDeleteDialogOpen(true);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!itemToDelete) return;
-    const updated = categories.filter(cat => cat.id !== itemToDelete.id);
-    saveCategories(updated);
-    addToast('Category deleted successfully', 'success');
-    setIsDeleteDialogOpen(false);
-    setItemToDelete(null);
+    try {
+      await api.del(`/categories/${itemToDelete.id}`);
+      addToast('Category deleted successfully', 'success');
+      setIsDeleteDialogOpen(false);
+      setItemToDelete(null);
+      await Promise.all([reload(), loadUsage()]);
+    } catch (err) {
+      addToast(errorMessage(err, 'Failed to delete category'), 'error');
+    }
   };
 
-  const handleDeactivateInstead = () => {
+  const handleDeactivateInstead = async () => {
     if (!itemToDelete) return;
-    const updated = categories.map(cat =>
-      cat.id === itemToDelete.id ? { ...cat, status: 'Inactive' as const } : cat
-    );
-    saveCategories(updated);
-    addToast(`"${itemToDelete.name}" deactivated`, 'success');
-    setIsDeleteDialogOpen(false);
-    setItemToDelete(null);
-    setIsDeleteBlocked(false);
+    try {
+      await api.put(`/categories/${itemToDelete.id}`, { isActive: false });
+      addToast(`"${itemToDelete.name}" deactivated`, 'success');
+      setIsDeleteDialogOpen(false);
+      setItemToDelete(null);
+      setIsDeleteBlocked(false);
+      await reload();
+    } catch (err) {
+      addToast(errorMessage(err, 'Failed to deactivate category'), 'error');
+    }
   };
 
   // Filter categories by search and active tab type
@@ -294,7 +384,12 @@ export default function Categories() {
 
       {/* Categories Grid List */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {filteredCategories.length === 0 ? (
+        {isLoading ? (
+          <div className="col-span-full bg-white border border-neutral-border rounded-2xl p-8 text-center text-neutral-text-muted space-y-2">
+            <FolderTree className="h-10 w-10 text-neutral-border mx-auto animate-pulse" />
+            <p className="text-xs font-bold text-neutral-text-dark">Loading categories…</p>
+          </div>
+        ) : filteredCategories.length === 0 ? (
           <div className="col-span-full bg-white border border-neutral-border rounded-2xl p-8 text-center text-neutral-text-muted space-y-2">
             <FolderTree className="h-10 w-10 text-neutral-border mx-auto" />
             <p className="text-xs font-bold text-neutral-text-dark">No Categories Found</p>

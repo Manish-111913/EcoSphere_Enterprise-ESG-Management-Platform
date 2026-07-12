@@ -1,10 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Info } from 'lucide-react';
-import { mockEsgScoreDetails } from '../mocks/dashboardData';
+import { dashboardService } from '../services/dashboardService';
+import { EsgDetails } from '../mocks/dashboardData';
 
 export default function RadialScoreGauge() {
-  const { total, environmental, social, governance, weights } = mockEsgScoreDetails;
+  const [esg, setEsg] = useState<EsgDetails>({ total: 0, environmental: 0, social: 0, governance: 0, weights: { environmental: 40, social: 30, governance: 30 } });
+  const { total, environmental, social, governance, weights } = esg;
   const [hoveredRing, setHoveredRing] = useState<string | null>(null);
+
+  useEffect(() => {
+    dashboardService.getEsgScoreDetails().then(setEsg).catch(() => { /* keep zeros */ });
+  }, []);
 
   // Helper to compute SVG dasharray for radial rings
   const radiusE = 45;
@@ -33,7 +39,7 @@ export default function RadialScoreGauge() {
           <Info className="h-4.5 w-4.5 text-neutral-text-muted hover:text-neutral-text-dark transition-colors" />
           <div className="absolute right-0 bottom-full mb-2 hidden group-hover:block bg-neutral-text-dark text-white text-[10px] font-medium p-2.5 rounded-lg w-52 shadow-xl z-50 leading-relaxed text-center">
             <span className="font-bold text-primary-teal block mb-1">Pillar Weights Configuration</span>
-            E 40% · S 30% · G 30%
+            E {weights.environmental}% · S {weights.social}% · G {weights.governance}%
             <span className="block text-[8px] text-neutral-text-muted mt-1">(Configurable in Admin settings)</span>
           </div>
         </div>

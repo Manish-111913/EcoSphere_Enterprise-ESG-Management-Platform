@@ -1,12 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
+import { useAuth } from '../context/auth';
 import { useToast } from '../components/ui-kit/Toast';
+import { badgesService } from '../services/badgesService';
+import { rewardsService } from '../services/rewardsService';
+import { api } from '../services/apiClient';
+import { Badge } from '../types';
 import {
   User as UserIcon, Trophy, Award, Gift, Key, ShieldCheck, Mail, Building,
   Star, Compass, History, Lock, EyeOff, Eye
 } from 'lucide-react';
-
-import { mockBadges, mockBadgeAwards, mockRewards, mockEmployees } from '../mocks/db';
 
 interface XpLedgerItem {
   id: string;
@@ -25,25 +28,32 @@ export default function Profile() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
 
-  // Load earned badges
-  const earnedBadgeIds = mockBadgeAwards.filter(ba => ba.employeeId === 'emp-1').map(ba => ba.badgeId);
-  const earnedBadges = mockBadges.filter(b => earnedBadgeIds.includes(b.id));
+  const { employeeId } = useAuth();
+  const [earnedBadges, setEarnedBadges] = useState<Badge[]>([]);
+  const [xpLedger, setXpLedger] = useState<XpLedgerItem[]>([]);
+  const [redeemedRewards, setRedeemedRewards] = useState<{ id: string; title: string; cost: number; status: string; date: string }[]>([]);
 
-  // XP History Ledger
-  const xpLedger: XpLedgerItem[] = [
-    { id: 'LDG-102', activity: 'Completed "Double-Sided Printing Challenge"', xpEarned: 150, pointsEarned: 50, date: '2026-07-10' },
-    { id: 'LDG-101', activity: 'Submitted Scope 1 Carbon Offset Invoice Proof', xpEarned: 300, pointsEarned: 100, date: '2026-07-08' },
-    { id: 'LDG-100', activity: 'Acknowledged Q2 Sustainability Ethics Policy', xpEarned: 100, pointsEarned: 25, date: '2026-07-05' },
-    { id: 'LDG-099', activity: 'Unlocked Badge: "Zero Waste Hero"', xpEarned: 500, pointsEarned: 150, date: '2026-07-01' },
-  ];
+  useEffect(() => {
+    if (!employeeId) return;
+    (async () => {
+      const [badges, awards, rewards, xp, reds] = await Promise.all([
+        badgesService.getBadges().catch(() => []),
+        badgesService.getBadgeAwards(employeeId).catch(() => []),
+        rewardsService.getRewards().catch(() => []),
+        api.get<{ entries: { id: string; points: number; remarks: string | null; createdAt: string }[] }>(`/me/xp`).catch(() => ({ entries: [] })),
+        rewardsService.getRedemptions(employeeId).catch(() => []),
+      ]);
+      const earnedIds = new Set(awards.map((a) => a.badgeId));
+      setEarnedBadges(badges.filter((b) => earnedIds.has(b.id)));
+      setXpLedger(xp.entries.slice(0, 20).map((e) => ({
+        id: e.id, activity: e.remarks || 'XP activity', xpEarned: Math.max(0, e.points), pointsEarned: e.points, date: (e.createdAt || '').slice(0, 10),
+      })));
+      const rewardName = new Map<string, string>(rewards.map((r) => [r.id, r.title] as [string, string]));
+      setRedeemedRewards(reds.map((r) => ({ id: r.id, title: rewardName.get(r.rewardId) ?? 'Reward', cost: r.pointsSpent, status: r.status, date: (r.timestamp || '').slice(0, 10) })));
+    })();
+  }, [employeeId]);
 
-  // Redemptions List
-  const redeemedRewards = [
-    { id: 'RDM-401', title: 'Eco-Friendly Bamboo Coffee Mug', cost: 120, status: 'Completed', date: '2026-07-02' },
-    { id: 'RDM-302', title: 'Solar Powered USB Phone Charger', cost: 350, status: 'In Transit', date: '2026-06-25' },
-  ];
-
-  const handlePasswordChange = (e: React.FormEvent) => {
+  const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentPassword || !newPassword || !confirmPassword) {
       addToast({ title: 'Error', description: 'All password fields are required.', type: 'info' });
@@ -53,7 +63,12 @@ export default function Profile() {
       addToast({ title: 'Error', description: 'New passwords do not match.', type: 'info' });
       return;
     }
-    
+    try {
+      await api.put('/auth/change-password', { currentPassword, newPassword });
+    } catch (err) {
+      addToast({ title: 'Password change failed', description: (err as Error).message, type: 'danger' });
+      return;
+    }
     addToast({
       title: 'Password Updated',
       description: 'Your security password has been changed successfully.',

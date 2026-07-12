@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { GraduationCap, Plus, CheckCircle2, Clock, Award, Building2, Search, User as UserIcon } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, Cell
@@ -10,10 +10,14 @@ import DataTable, { Column } from '../../components/ui-kit/DataTable';
 import FormDrawer from '../../components/ui-kit/FormDrawer';
 import StatusBadge from '../../components/ui-kit/StatusBadge';
 import SelectField from '../../components/ui/select-field';
-import { mockEmployees } from '../../mocks/db';
+import { reference, UserRef } from '../../services/referenceData';
 import {
-  socialMetricsService, CURRENT_QUARTER, TrainingRecord, TrainingStatus
+  socialMetricsService, CURRENT_QUARTER, TrainingRecord, TrainingStatus, TrainingDeptSummary
 } from '../../services/socialMetricsService';
+
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : 'Something went wrong';
+}
 
 const TARGET = 90;
 
@@ -35,11 +39,45 @@ export default function Training() {
   const { addToast } = useToast();
   const canManage = role === 'Admin' || role === 'CSR Manager';
 
-  const departments = socialMetricsService.getDepartments();
+  // Backend-backed data
+  const [records, setRecords] = useState<TrainingRecord[]>([]);
+  const [summary, setSummary] = useState<TrainingDeptSummary[]>([]);
+  const [employees, setEmployees] = useState<UserRef[]>([]);
+  const [deptById, setDeptById] = useState<Record<string, string>>({});
 
-  const [tick, setTick] = useState(0);
-  const refresh = () => setTick(t => t + 1);
-  const records = useMemo(() => socialMetricsService.getTrainingRecords(), [tick]);
+  const empById = useMemo(() => {
+    const m: Record<string, UserRef> = {};
+    employees.forEach(e => { m[e.id] = e; });
+    return m;
+  }, [employees]);
+
+  const departments = useMemo(() => summary.map(s => s.department), [summary]);
+
+  const reload = async () => {
+    try {
+      const [users, depts, recs, sum] = await Promise.all([
+        reference.users(),
+        reference.departments(),
+        socialMetricsService.getTrainingRecords(),
+        socialMetricsService.getTrainingSummary(),
+      ]);
+      setEmployees(users);
+      const dmap: Record<string, string> = {};
+      depts.forEach(d => { dmap[d.id] = d.name; });
+      setDeptById(dmap);
+      setRecords(recs);
+      setSummary(sum);
+    } catch (e) {
+      addToast(errMessage(e), 'error');
+    }
+  };
+
+  useEffect(() => { void reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const employeeDept = (employeeId: string): string => {
+    const emp = empById[employeeId];
+    return (emp && deptById[emp.departmentId]) || 'Unassigned';
+  };
 
   // Filters
   const [selectedDept, setSelectedDept] = useState('All');
@@ -60,15 +98,15 @@ export default function Training() {
   // Enriched rows
   const enriched = useMemo<TrainingRow[]>(() => {
     return records.map(r => {
-      const emp = mockEmployees.find(e => e.id === r.employeeId);
+      const emp = empById[r.employeeId];
       return {
         ...r,
         employeeName: emp?.name ?? 'Unknown',
-        employeeAvatar: emp?.avatar,
-        department: socialMetricsService.employeeDept(r.employeeId),
+        employeeAvatar: undefined,
+        department: employeeDept(r.employeeId),
       };
     });
-  }, [records]);
+  }, [records, empById, deptById]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtered = useMemo(() => {
     return enriched.filter(r => {
@@ -82,43 +120,51 @@ export default function Training() {
 
   // Stats
   const stats = useMemo(() => {
-    const overall = socialMetricsService.trainingCompletionPct('All');
+    const totalEmployees = summary.reduce((sum, s) => sum + s.employees, 0);
+    const totalCompleted = summary.reduce((sum, s) => sum + s.completed, 0);
+    const overall = totalEmployees === 0 ? 0 : Math.round((totalCompleted / totalEmployees) * 100);
     const completedThisQuarter = records.filter(
       r => r.status === 'Completed' && r.completedDate && r.completedDate >= '2026-07-01'
     ).length;
     const totalHours = records.filter(r => r.status === 'Completed').reduce((sum, r) => sum + r.hours, 0);
-    const byDept = socialMetricsService.completionByDepartment();
-    const at100 = byDept.filter(d => d.completion === 100).length;
+    const at100 = summary.filter(d => Math.round(d.completionPct) === 100).length;
     return { overall, completedThisQuarter, totalHours, at100 };
-  }, [records]);
+  }, [records, summary]);
 
-  const chartData = useMemo(() => socialMetricsService.completionByDepartment(), [records]);
+  const chartData = useMemo(
+    () => summary.map(s => ({ department: s.department, completion: Math.round(s.completionPct) })),
+    [summary]
+  );
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     const hours = Number(formHours);
     if (!formEmployeeId || !formTraining.trim() || isNaN(hours) || hours <= 0) {
       addToast('Please provide an employee, training name and valid hours', 'warning');
       return;
     }
-    socialMetricsService.addTrainingRecord({
-      employeeId: formEmployeeId,
-      trainingName: formTraining.trim(),
-      hours,
-      completedDate: formStatus === 'Completed' ? (formDate || '2026-07-12') : null,
-      status: formStatus,
-    });
-    addToast('Training record added', 'success');
-    setIsFormOpen(false);
-    setFormEmployeeId(''); setEmpSearch(''); setFormTraining(''); setFormHours(''); setFormDate('');
-    setFormStatus('Completed');
-    refresh();
+    try {
+      await socialMetricsService.addTrainingRecord({
+        employeeId: formEmployeeId,
+        trainingName: formTraining.trim(),
+        hours,
+        completedDate: formStatus === 'Completed' ? (formDate || '2026-07-12') : null,
+        status: formStatus,
+      });
+      addToast('Training record added', 'success');
+      setIsFormOpen(false);
+      setFormEmployeeId(''); setEmpSearch(''); setFormTraining(''); setFormHours(''); setFormDate('');
+      setFormStatus('Completed');
+      await reload();
+    } catch (err) {
+      addToast(errMessage(err), 'error');
+    }
   };
 
-  const filteredEmployees = mockEmployees.filter(e =>
+  const filteredEmployees = employees.filter(e =>
     e.name.toLowerCase().includes(empSearch.toLowerCase())
   );
-  const selectedEmp = mockEmployees.find(e => e.id === formEmployeeId);
+  const selectedEmp = employees.find(e => e.id === formEmployeeId);
 
   const columns: Column<TrainingRow>[] = [
     {
@@ -292,7 +338,9 @@ export default function Training() {
             {selectedEmp ? (
               <div className="flex items-center justify-between px-3 py-2 border border-neutral-border rounded-xl bg-primary-teal/5">
                 <div className="flex items-center gap-2">
-                  <img src={selectedEmp.avatar} alt="" className="h-5 w-5 rounded-full object-cover" />
+                  <div className="h-5 w-5 rounded-full bg-neutral-bg flex items-center justify-center">
+                    <UserIcon className="h-3 w-3 text-neutral-text-muted" />
+                  </div>
                   <span className="text-xs font-bold text-neutral-text-dark">{selectedEmp.name}</span>
                 </div>
                 <button type="button" onClick={() => { setFormEmployeeId(''); setEmpSearch(''); }} className="text-[10px] font-bold text-neutral-text-muted hover:text-red-600">Change</button>
@@ -319,7 +367,9 @@ export default function Training() {
                         onClick={() => { setFormEmployeeId(e.id); setShowEmpDropdown(false); }}
                         className="w-full px-3 py-1.5 text-left text-xs hover:bg-neutral-bg flex items-center gap-2 font-bold"
                       >
-                        <img src={e.avatar} alt="" className="h-4 w-4 rounded-full object-cover" />
+                        <div className="h-4 w-4 rounded-full bg-neutral-bg flex items-center justify-center">
+                          <UserIcon className="h-2.5 w-2.5 text-neutral-text-muted" />
+                        </div>
                         {e.name}
                       </button>
                     ))}

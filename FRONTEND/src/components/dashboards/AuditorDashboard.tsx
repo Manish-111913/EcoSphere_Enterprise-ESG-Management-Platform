@@ -1,11 +1,28 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Shield, FileCheck, Search, Calendar, CheckSquare, Eye, ExternalLink } from 'lucide-react';
-import { mockAudits, mockComplianceIssues, mockPolicies } from '../../mocks/db';
+import { auditsService, AuditView } from '../../services/auditsService';
+import { governanceService } from '../../services/governanceService';
+import { ComplianceIssue } from '../../types';
 
 export default function AuditorDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
+  const [audits, setAudits] = useState<AuditView[]>([]);
+  const [issues, setIssues] = useState<ComplianceIssue[]>([]);
 
-  const filteredIssues = mockComplianceIssues.filter(issue =>
+  useEffect(() => {
+    (async () => {
+      const [auds, iss] = await Promise.all([
+        auditsService.getAudits().catch(() => [] as AuditView[]),
+        governanceService.getComplianceIssues().catch(() => [] as ComplianceIssue[]),
+      ]);
+      setAudits(auds);
+      setIssues(iss);
+    })();
+  }, []);
+
+  const scheduledAudits = audits.filter(a => a.status === 'Scheduled' || a.status === 'In Progress');
+
+  const filteredIssues = issues.filter(issue =>
     issue.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     issue.id.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -31,40 +48,40 @@ export default function AuditorDashboard() {
         <div className="bg-white border border-neutral-border rounded-xl p-5 shadow-sm text-left">
           <span className="text-xs font-semibold text-neutral-text-muted">Verification Actions</span>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-neutral-text-dark">{mockAudits.length}</span>
+            <span className="text-2xl font-black text-neutral-text-dark">{audits.length}</span>
             <span className="text-xs font-bold text-neutral-text-muted">milestones</span>
           </div>
           <p className="text-[11px] text-green-600 font-bold mt-1.5">
-            Deloitte & Apex certified
+            Independent audit trail
           </p>
         </div>
 
         <div className="bg-white border border-neutral-border rounded-xl p-5 shadow-sm text-left">
           <span className="text-xs font-semibold text-neutral-text-muted">Compliance Audits</span>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-neutral-text-dark">4</span>
+            <span className="text-2xl font-black text-neutral-text-dark">{scheduledAudits.length}</span>
             <span className="text-xs font-bold text-neutral-text-muted">schedules</span>
           </div>
           <p className="text-[11px] text-neutral-text-muted mt-1.5">
-            2 scheduled in Q3
+            Scheduled & in-progress
           </p>
         </div>
 
         <div className="bg-white border border-neutral-border rounded-xl p-5 shadow-sm text-left">
           <span className="text-xs font-semibold text-neutral-text-muted">Ethics Code Compliance</span>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-neutral-text-dark">100%</span>
+            <span className="text-2xl font-black text-neutral-text-dark">—</span>
             <span className="text-xs font-bold text-neutral-text-muted">ethics rate</span>
           </div>
           <p className="text-[11px] text-emerald-600 font-bold mt-1.5">
-            All policy terms signed
+            No aggregate source
           </p>
         </div>
 
         <div className="bg-white border border-neutral-border rounded-xl p-5 shadow-sm text-left">
           <span className="text-xs font-semibold text-neutral-text-muted">Logged Findings</span>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-neutral-text-dark">{mockComplianceIssues.length}</span>
+            <span className="text-2xl font-black text-neutral-text-dark">{issues.length}</span>
             <span className="text-xs font-bold text-neutral-text-muted">issues total</span>
           </div>
           <p className="text-[11px] text-neutral-text-muted mt-1.5">
@@ -95,7 +112,7 @@ export default function AuditorDashboard() {
             Official Audit Schedules
           </h3>
           <div className="space-y-4">
-            {mockAudits.map((aud) => (
+            {audits.map((aud) => (
               <div key={aud.id} className="border border-neutral-border rounded-lg p-3.5 bg-neutral-bg/10 relative group">
                 <div className="flex items-center justify-between">
                   <span className="text-[9px] font-mono font-bold text-neutral-text-muted">{aud.id}</span>

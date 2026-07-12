@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { gamificationService, EnhancedParticipation } from '../../services/gamificationService';
 import { challengesService } from '../../services/challengesService';
+import { challengeParticipationsService, ChallengePart } from '../../services/challengeParticipationsService';
+import { reference } from '../../services/referenceData';
 import { Employee } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -28,25 +29,24 @@ export default function ChallengeReview() {
 
   const [challenge, setChallenge] = useState<any | null>(null);
   const [challengeLoading, setChallengeLoading] = useState(true);
-  const employees = useMemo(() => gamificationService.getEmployees(), []);
-  
-  const [participations, setParticipations] = useState<EnhancedParticipation[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; name: string; avatar: string }[]>([]);
+
+  const [participations, setParticipations] = useState<ChallengePart[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [feedback, setFeedback] = useState('');
   const [actionDone, setActionDone] = useState<string | null>(null);
 
-  const loadSubmissions = () => {
+  const loadSubmissions = async () => {
     if (!id) return;
-    const parts = gamificationService.getParticipationsByChallenge(id);
-    // Only display 'Pending Review' submissions for review queue
-    const pending = parts.filter(p => p.status === 'Pending Review');
-    setParticipations(pending);
+    const parts = await challengeParticipationsService.byChallenge(id).catch(() => []);
+    setParticipations(parts.filter(p => p.status === 'Pending Review'));
     setCurrentIndex(0);
   };
 
   useEffect(() => {
-    loadSubmissions();
+    void loadSubmissions();
+    reference.users().then((u) => setEmployees(u.map((x) => ({ id: x.id, name: x.name, avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(x.name)}&background=0D9488&color=fff` })))).catch(() => {});
   }, [id]);
 
   useEffect(() => {
@@ -56,15 +56,6 @@ export default function ChallengeReview() {
       if (!id) {
         if (active) {
           setChallenge(null);
-          setChallengeLoading(false);
-        }
-        return;
-      }
-
-      const localChallenge = gamificationService.getChallengeById(id);
-      if (localChallenge) {
-        if (active) {
-          setChallenge(localChallenge);
           setChallengeLoading(false);
         }
         return;
@@ -148,36 +139,29 @@ export default function ChallengeReview() {
     setActionDone(null);
   };
 
-  const handleApprove = () => {
+  const handleApprove = async () => {
     if (participations.length === 0) return;
     const active = participations[currentIndex];
-    
-    gamificationService.reviewSubmission(active.id, 'Approved', feedback);
-    setActionDone('Approved! Points and XP have been successfully credited to the employee.');
-    
-    // Refresh global user points session
-    refreshUser();
-
-    // Reload queue
-    setTimeout(() => {
-      loadSubmissions();
-      setFeedback('');
-      setActionDone(null);
-    }, 1500);
+    try {
+      await challengeParticipationsService.approve(active.id, feedback);
+      setActionDone('Approved! Points and XP have been successfully credited to the employee.');
+      refreshUser();
+      setTimeout(() => { void loadSubmissions(); setFeedback(''); setActionDone(null); }, 1500);
+    } catch (err) {
+      setActionDone(`Approval failed: ${(err as Error).message}`);
+    }
   };
 
-  const handleReject = () => {
+  const handleReject = async () => {
     if (participations.length === 0) return;
     const active = participations[currentIndex];
-    
-    gamificationService.reviewSubmission(active.id, 'Rejected', feedback || 'Proof files submitted did not meet ESG requirements.');
-    setActionDone('Rejected. The submission status has been updated and no points were awarded.');
-    
-    setTimeout(() => {
-      loadSubmissions();
-      setFeedback('');
-      setActionDone(null);
-    }, 1500);
+    try {
+      await challengeParticipationsService.reject(active.id, feedback || 'Proof files submitted did not meet ESG requirements.');
+      setActionDone('Rejected. The submission status has been updated and no points were awarded.');
+      setTimeout(() => { void loadSubmissions(); setFeedback(''); setActionDone(null); }, 1500);
+    } catch (err) {
+      setActionDone(`Rejection failed: ${(err as Error).message}`);
+    }
   };
 
   const activeSubmission = participations[currentIndex];

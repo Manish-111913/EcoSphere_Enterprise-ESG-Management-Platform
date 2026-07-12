@@ -1,67 +1,108 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/auth';
 import { Trophy, Award, Flame, Gift, FileText, CheckCircle, ArrowRight, Star } from 'lucide-react';
 import { useToast } from '../ui-kit/Toast';
-import { mockChallenges, mockBadges, mockBadgeAwards, mockPolicies, mockPolicyAcknowledgements, mockRewards, mockEmployees } from '../../mocks/db';
+import { dashboardService, LeaderboardEntry } from '../../services/dashboardService';
+import { challengesService } from '../../services/challengesService';
+import { badgesService } from '../../services/badgesService';
+import { policiesService } from '../../services/policiesService';
+import { rewardsService } from '../../services/rewardsService';
+import { Challenge, Badge, Policy, Reward } from '../../types';
 
 export default function EmployeeDashboard() {
   const { user, refreshUser } = useApp();
+  const { employeeId } = useAuth();
   const { addToast } = useToast();
 
-  const [points, setPoints] = useState(user?.points || 720);
-  const [xp, setXp] = useState(user?.xp || 4100);
-  const [level, setLevel] = useState(user?.level || 9);
+  const points = user?.points ?? 0;
+  const xp = user?.xp ?? 0;
+  const level = user?.level ?? 1;
 
-  // Compute progress to next level (each level requires level * 1000 XP)
-  const currentLevelMinXp = (level - 1) * 1000;
-  const nextLevelXp = level * 1000;
-  const levelProgress = ((xp - currentLevelMinXp) / 1000) * 100;
+  const [nextLevelXp, setNextLevelXp] = useState<number>(xp);
+  const [ownRank, setOwnRank] = useState<number>(0);
+  const [activeChallenges, setActiveChallenges] = useState<Challenge[]>([]);
+  const [earnedBadges, setEarnedBadges] = useState<Badge[]>([]);
+  const [pendingPolicies, setPendingPolicies] = useState<Policy[]>([]);
+  const [rewards, setRewards] = useState<Reward[]>([]);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
 
-  // Active challenges
-  const activeChallenges = mockChallenges.filter(c => c.status === 'Active');
+  useEffect(() => {
+    (async () => {
+      const [summary, challenges, badges, awards, pending, allRewards, board] = await Promise.all([
+        dashboardService.getMeSummary().catch(() => null),
+        challengesService.getChallenges().catch(() => [] as Challenge[]),
+        badgesService.getBadges().catch(() => [] as Badge[]),
+        employeeId ? badgesService.getBadgeAwards(employeeId).catch(() => []) : Promise.resolve([]),
+        policiesService.getPendingPolicies().catch(() => [] as Policy[]),
+        rewardsService.getRewards().catch(() => [] as Reward[]),
+        dashboardService.getEmployeeLeaderboard().catch(() => [] as LeaderboardEntry[]),
+      ]);
+      if (summary) {
+        setNextLevelXp(summary.nextLevelAt ?? summary.xpBalance);
+        setOwnRank(summary.leaderboardRank ?? 0);
+      }
+      setActiveChallenges(challenges.filter((c) => c.status === 'Active'));
+      const earnedIds = new Set(awards.map((a) => a.badgeId));
+      setEarnedBadges(badges.filter((b) => earnedIds.has(b.id)));
+      setPendingPolicies(pending);
+      setRewards(allRewards);
+      setLeaderboard(board);
+    })();
+  }, [employeeId]);
 
-  // Earned badges
-  const earnedBadgeIds = mockBadgeAwards.filter(ba => ba.employeeId === 'emp-1').map(ba => ba.badgeId);
-  const earnedBadges = mockBadges.filter(b => earnedBadgeIds.includes(b.id));
+  // Progress toward the next level threshold.
+  const levelProgress = nextLevelXp > 0 ? Math.min(100, (xp / nextLevelXp) * 100) : 100;
 
-  // Pending policy signoffs
-  const pendingAcks = mockPolicyAcknowledgements.filter(a => a.employeeId === 'emp-1' && a.status === 'Pending');
-  const pendingPolicies = mockPolicies.filter(p => pendingAcks.some(a => a.policyId === p.id));
+  // Affordable rewards (client-side filter against live point balance).
+  const affordableRewards = rewards.filter((r) => r.pointsCost <= points && r.stock > 0);
 
-  // Affordable rewards
-  const affordableRewards = mockRewards.filter(r => r.pointsCost <= points && r.stock > 0);
+  // Resolve own rank position from the leaderboard when the summary omits it.
+  const resolvedRank = ownRank || (leaderboard.findIndex((e) => e.id === employeeId) + 1);
 
-  // Mini Leaderboard
-  const sortedEmployees = [...mockEmployees].sort((a, b) => b.points - a.points);
-  const ownRankIdx = sortedEmployees.findIndex(e => e.name === user?.name);
-  const ownRank = ownRankIdx !== -1 ? ownRankIdx + 1 : 9;
-
-  const handleJoinChallenge = (title: string, xpReward: number) => {
-    addToast({
-      title: 'Joined Challenge',
-      description: `You have successfully joined the challenge "${title}". Earn +${xpReward} XP on completion!`,
-      type: 'success'
-    });
+  const handleJoinChallenge = async (id: string, title: string, xpReward: number) => {
+    try {
+      await challengesService.join(id);
+      addToast({
+        title: 'Joined Challenge',
+        description: `You have successfully joined the challenge "${title}". Earn +${xpReward} XP on completion!`,
+        type: 'success'
+      });
+    } catch (err) {
+      addToast({ title: 'Could not join', description: (err as Error).message, type: 'danger' });
+    }
   };
 
-  const handleSignPolicy = (id: string, title: string) => {
-    addToast({
-      title: 'Policy Acknowledged',
-      description: `You signed off on "${title}" successfully. Your compliance status is active.`,
-      type: 'success'
-    });
-    // Visual state update
-    pendingPolicies.filter(p => p.id !== id);
+  const handleSignPolicy = async (id: string, title: string) => {
+    try {
+      await policiesService.acknowledge(id);
+      setPendingPolicies((prev) => prev.filter((p) => p.id !== id));
+      addToast({
+        title: 'Policy Acknowledged',
+        description: `You signed off on "${title}" successfully. Your compliance status is active.`,
+        type: 'success'
+      });
+    } catch (err) {
+      addToast({ title: 'Acknowledgement failed', description: (err as Error).message, type: 'danger' });
+    }
   };
 
-  const handleRedeemReward = (id: string, title: string, cost: number) => {
+  const handleRedeemReward = async (id: string, title: string, cost: number) => {
     if (points < cost) return;
-    setPoints(prev => prev - cost);
-    addToast({
-      title: 'Redemption Success',
-      description: `Redeemed "${title}" for ${cost} points. A confirmation email was sent!`,
-      type: 'success'
-    });
+    const res = await rewardsService.redeem(id);
+    if (res.success) {
+      if (typeof res.newStock === 'number') {
+        setRewards((prev) => prev.map((r) => (r.id === id ? { ...r, stock: res.newStock! } : r)));
+      }
+      refreshUser();
+      addToast({
+        title: 'Redemption Success',
+        description: `Redeemed "${title}" for ${cost} points. A confirmation email was sent!`,
+        type: 'success'
+      });
+    } else {
+      addToast({ title: 'Redemption failed', description: res.error ?? 'Please try again.', type: 'danger' });
+    }
   };
 
   return (
@@ -113,6 +154,11 @@ export default function EmployeeDashboard() {
               </span>
             </div>
 
+            {activeChallenges.length === 0 && (
+              <div className="text-center py-6 text-neutral-text-muted text-xs">
+                No active challenges right now. Check back soon!
+              </div>
+            )}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {activeChallenges.map((ch: any) => (
                 <div key={ch.id} className="border border-neutral-border hover:border-teal-500 rounded-xl p-4 flex flex-col justify-between bg-neutral-bg/20 transition-all group relative">
@@ -129,7 +175,7 @@ export default function EmployeeDashboard() {
                   <div className="mt-4 pt-3 border-t border-neutral-border/50 flex items-center justify-between">
                     <span className="text-[10px] text-neutral-text-muted font-mono font-medium">Reward: {ch.points} pts</span>
                     <button
-                      onClick={() => handleJoinChallenge(ch.title, ch.xp)}
+                      onClick={() => handleJoinChallenge(ch.id, ch.title, ch.xp)}
                       className="px-3 py-1 bg-primary-teal hover:bg-primary-teal-hover text-white text-[10px] font-bold rounded-lg shadow-sm transition-all"
                     >
                       Join challenge
@@ -199,22 +245,25 @@ export default function EmployeeDashboard() {
               Employee Leaderboard Rank
             </h3>
             <div className="space-y-2.5">
-              {sortedEmployees.slice(0, 4).map((emp, idx) => (
+              {leaderboard.slice(0, 4).map((emp, idx) => (
                 <div key={emp.id} className={`flex items-center justify-between p-2 rounded-lg ${
-                  emp.name === user?.name ? 'bg-teal-50 border border-teal-200 font-bold' : ''
+                  emp.id === employeeId ? 'bg-teal-50 border border-teal-200 font-bold' : ''
                 }`}>
                   <div className="flex items-center gap-2 overflow-hidden truncate">
-                    <span className="text-xs font-bold font-mono text-neutral-text-muted w-4">#{idx+1}</span>
+                    <span className="text-xs font-bold font-mono text-neutral-text-muted w-4">#{emp.rank ?? idx+1}</span>
                     <img src={emp.avatar} alt={emp.name} className="w-6 h-6 rounded-full border border-neutral-border shrink-0" />
                     <span className="text-xs text-neutral-text-dark truncate leading-none">{emp.name}</span>
                   </div>
                   <span className="text-xs font-bold font-mono text-teal-700 shrink-0">{emp.points} pts</span>
                 </div>
               ))}
-              {ownRank > 4 && (
+              {leaderboard.length === 0 && (
+                <div className="text-center py-4 text-neutral-text-muted text-[11px]">No leaderboard data available.</div>
+              )}
+              {resolvedRank > 4 && (
                 <div className="border-t border-neutral-border/50 pt-2 flex items-center justify-between p-2 bg-teal-50 border border-teal-200 font-bold rounded-lg">
                   <div className="flex items-center gap-2 overflow-hidden truncate">
-                    <span className="text-xs font-bold font-mono text-neutral-text-muted w-4">#{ownRank}</span>
+                    <span className="text-xs font-bold font-mono text-neutral-text-muted w-4">#{resolvedRank}</span>
                     <img src={user?.avatar} alt={user?.name} className="w-6 h-6 rounded-full border border-neutral-border shrink-0" />
                     <span className="text-xs text-neutral-text-dark truncate leading-none">{user?.name} (You)</span>
                   </div>

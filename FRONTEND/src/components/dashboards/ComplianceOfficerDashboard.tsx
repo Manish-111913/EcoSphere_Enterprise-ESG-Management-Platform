@@ -1,32 +1,58 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { AlertTriangle, ShieldCheck, ClipboardCheck, FileCheck, CheckCircle, Search, XCircle, ArrowRight } from 'lucide-react';
 import { useToast } from '../ui-kit/Toast';
-import { mockComplianceIssues, mockAudits, mockPolicies, mockEmployees } from '../../mocks/db';
+import { governanceService } from '../../services/governanceService';
+import { auditsService, AuditView } from '../../services/auditsService';
+import { policiesService } from '../../services/policiesService';
+import { reference } from '../../services/referenceData';
+import { ComplianceIssue } from '../../types';
+
+interface OwnerInfo { name: string; avatar: string }
 
 export default function ComplianceOfficerDashboard() {
   const { addToast } = useToast();
-  
-  const [issues, setIssues] = useState(() => {
-    const cached = localStorage.getItem('ecosphere_compliance_issues');
-    return cached ? JSON.parse(cached) : mockComplianceIssues;
-  });
 
-  const overdueIssues = issues.filter((i: any) => i.isOverdue && (i.status === 'Open' || i.status === 'In Progress'));
-  const activeIssues = issues.filter((i: any) => i.status === 'Open' || i.status === 'In Progress');
-  const completedAudits = mockAudits.filter(a => a.status === 'Completed');
-  const scheduledAudits = mockAudits.filter(a => a.status === 'Scheduled' || a.status === 'In Progress');
+  const [issues, setIssues] = useState<ComplianceIssue[]>([]);
+  const [audits, setAudits] = useState<AuditView[]>([]);
+  const [policyCount, setPolicyCount] = useState<number>(0);
+  const [ownerById, setOwnerById] = useState<Record<string, OwnerInfo>>({});
 
-  const resolveIssue = (id: string) => {
-    const updated = issues.map((i: any) =>
-      i.id === id ? { ...i, status: 'Resolved', isOverdue: false } : i
-    );
-    setIssues(updated);
-    localStorage.setItem('ecosphere_compliance_issues', JSON.stringify(updated));
-    addToast({
-      title: 'Issue Resolved',
-      description: `Compliance issue ${id} was marked as resolved.`,
-      type: 'success'
-    });
+  useEffect(() => {
+    (async () => {
+      const [iss, auds, board, users] = await Promise.all([
+        governanceService.getComplianceIssues().catch(() => [] as ComplianceIssue[]),
+        auditsService.getAudits().catch(() => [] as AuditView[]),
+        policiesService.getBoard().catch(() => ({ policies: [] })),
+        reference.users().catch(() => []),
+      ]);
+      setIssues(iss);
+      setAudits(auds);
+      setPolicyCount(board.policies.length);
+      const map: Record<string, OwnerInfo> = {};
+      users.forEach((u) => {
+        map[u.id] = { name: u.name, avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=0D9488&color=fff` };
+      });
+      setOwnerById(map);
+    })();
+  }, []);
+
+  const overdueIssues = issues.filter((i) => i.isOverdue && (i.status === 'Open' || i.status === 'In Progress'));
+  const activeIssues = issues.filter((i) => i.status === 'Open' || i.status === 'In Progress');
+  const completedAudits = audits.filter(a => a.status === 'Completed');
+  const scheduledAudits = audits.filter(a => a.status === 'Scheduled' || a.status === 'In Progress');
+
+  const resolveIssue = async (id: string) => {
+    try {
+      const updated = await governanceService.transitionIssue(id, 'Resolved', 'Resolved from compliance dashboard.');
+      setIssues((prev) => prev.map((i) => (i.id === id ? updated : i)));
+      addToast({
+        title: 'Issue Resolved',
+        description: `Compliance issue ${id} was marked as resolved.`,
+        type: 'success'
+      });
+    } catch (err) {
+      addToast({ title: 'Could not resolve', description: (err as Error).message, type: 'danger' });
+    }
   };
 
   return (
@@ -85,7 +111,7 @@ export default function ComplianceOfficerDashboard() {
             <span className="p-1.5 bg-blue-50 text-blue-700 rounded-lg"><ShieldCheck size={16} /></span>
           </div>
           <div className="mt-3 flex items-baseline gap-2">
-            <span className="text-2xl font-black text-neutral-text-dark">{mockPolicies.length}</span>
+            <span className="text-2xl font-black text-neutral-text-dark">{policyCount}</span>
             <span className="text-xs font-bold text-neutral-text-muted">regulations</span>
           </div>
           <p className="text-[11px] text-blue-600 font-bold mt-1.5">
@@ -129,8 +155,8 @@ export default function ComplianceOfficerDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-border">
-                {activeIssues.map((issue: any) => {
-                  const owner = mockEmployees.find(e => e.id === issue.ownerId);
+                {activeIssues.map((issue) => {
+                  const owner = ownerById[issue.ownerId];
                   return (
                     <tr key={issue.id} className="hover:bg-neutral-bg transition-colors">
                       <td className="p-2.5 font-mono font-semibold text-neutral-text-dark">{issue.id.toUpperCase()}</td>
@@ -184,7 +210,7 @@ export default function ComplianceOfficerDashboard() {
             Audit Plans & Verification events
           </h3>
           <div className="space-y-3.5">
-            {mockAudits.map((aud) => (
+            {audits.map((aud) => (
               <div key={aud.id} className="border border-neutral-border rounded-lg p-3.5 text-left bg-neutral-bg/20">
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] font-mono text-neutral-text-muted font-bold">{aud.id}</span>

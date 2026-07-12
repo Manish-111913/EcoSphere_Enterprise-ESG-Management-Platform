@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Users, Plus, Settings2, TrendingUp, TrendingDown, Minus, X, Edit, Trash2, ArrowRight
 } from 'lucide-react';
@@ -12,9 +12,13 @@ import ChartCard from '../../components/ui-kit/ChartCard';
 import DataTable, { Column } from '../../components/ui-kit/DataTable';
 import FormDrawer from '../../components/ui-kit/FormDrawer';
 import {
-  socialMetricsService, QUARTERS, CURRENT_QUARTER,
-  MetricDefinition, DiversityRecord
+  socialMetricsService, CURRENT_QUARTER,
+  MetricDefinition, DiversityRecord, GenderSplit
 } from '../../services/socialMetricsService';
+
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : 'Something went wrong';
+}
 
 const GENDER_COLORS = ['#0EA5E9', '#EC4899', '#8B5CF6'];
 const BAR_COLOR = '#0D9488';
@@ -31,28 +35,51 @@ export default function Diversity() {
   const { addToast } = useToast();
   const canManage = role === 'Admin' || role === 'CSR Manager';
 
-  const departments = socialMetricsService.getDepartments();
-
-  // Data + a tick to refresh after mutations
-  const [tick, setTick] = useState(0);
-  const refresh = () => setTick(t => t + 1);
-  const records = useMemo(() => socialMetricsService.getDiversityRecords(), [tick]);
-  const definitions = useMemo(() => socialMetricsService.getDefinitions(), [tick]);
-  const genderSplit = useMemo(() => socialMetricsService.getGenderSplit(), [tick]);
+  // Backend-backed data
+  const [departments, setDepartments] = useState<string[]>([]);
+  const [records, setRecords] = useState<DiversityRecord[]>([]);
+  const [definitions, setDefinitions] = useState<MetricDefinition[]>([]);
+  const [genderSplit, setGenderSplit] = useState<GenderSplit[]>([]);
+  const [periods, setPeriods] = useState<string[]>([]);
 
   // Filters
   const [selectedPeriod, setSelectedPeriod] = useState(CURRENT_QUARTER);
-  const [selectedDept, setSelectedDept] = useState(departments[0]);
+  const [selectedDept, setSelectedDept] = useState('All');
 
   // Drawers / dialogs
   const [isSnapshotOpen, setIsSnapshotOpen] = useState(false);
   const [isDefinitionsOpen, setIsDefinitionsOpen] = useState(false);
 
   // Snapshot form
-  const [formMetric, setFormMetric] = useState(definitions[0]?.code ?? '');
-  const [formDept, setFormDept] = useState(departments[0]);
+  const [formMetric, setFormMetric] = useState('');
+  const [formDept, setFormDept] = useState('');
   const [formPeriod, setFormPeriod] = useState(CURRENT_QUARTER);
   const [formValue, setFormValue] = useState('');
+
+  const reload = async () => {
+    try {
+      const [depts, recs, defs, gs] = await Promise.all([
+        socialMetricsService.getDepartments(),
+        socialMetricsService.getDiversityRecords(),
+        socialMetricsService.getDefinitions(),
+        socialMetricsService.getGenderSplit(),
+      ]);
+      setDepartments(depts);
+      setRecords(recs);
+      setDefinitions(defs);
+      setGenderSplit(gs);
+      const ps = Array.from(new Set(recs.map(r => r.period))).sort();
+      setPeriods(ps);
+      setSelectedPeriod(prev => (ps.includes(prev) ? prev : (ps[ps.length - 1] ?? CURRENT_QUARTER)));
+    } catch (e) {
+      addToast(errMessage(e), 'error');
+    }
+  };
+
+  useEffect(() => { void reload(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Period options for the dropdowns (fall back to the current month).
+  const periodOptions = periods.length ? periods : [CURRENT_QUARTER];
 
   // --- Chart data ---
   const donutData = useMemo(() => {
@@ -66,13 +93,13 @@ export default function Diversity() {
   }, [genderSplit, selectedDept]);
 
   const trendData = useMemo(() => {
-    return QUARTERS.map(period => {
+    return periodOptions.map(period => {
       const rec = records.find(
         r => r.metricCode === 'DIV_INDEX' && r.department === selectedDept && r.period === period
       );
       return { period, value: rec?.value ?? 0 };
     });
-  }, [records, selectedDept]);
+  }, [records, selectedDept, periodOptions]);
 
   const comparisonData = useMemo(() => {
     return departments
@@ -87,8 +114,8 @@ export default function Diversity() {
 
   // --- Table rows (selected period, direction vs previous quarter) ---
   const tableRows = useMemo<MetricRow[]>(() => {
-    const periodIdx = QUARTERS.indexOf(selectedPeriod);
-    const prevPeriod = periodIdx > 0 ? QUARTERS[periodIdx - 1] : null;
+    const periodIdx = periodOptions.indexOf(selectedPeriod);
+    const prevPeriod = periodIdx > 0 ? periodOptions[periodIdx - 1] : null;
     const defByCode = new Map<string, MetricDefinition>(definitions.map(d => [d.code, d]));
 
     return records
@@ -107,26 +134,30 @@ export default function Diversity() {
           previousValue: prev ? prev.value : null,
         };
       });
-  }, [records, definitions, selectedPeriod, selectedDept]);
+  }, [records, definitions, selectedPeriod, selectedDept, periodOptions]);
 
   // --- Snapshot save ---
-  const handleSaveSnapshot = (e: React.FormEvent) => {
+  const handleSaveSnapshot = async (e: React.FormEvent) => {
     e.preventDefault();
     const value = Number(formValue);
     if (!formMetric || !formDept || !formPeriod || isNaN(value)) {
       addToast('Please complete all snapshot fields with a valid value', 'warning');
       return;
     }
-    socialMetricsService.addDiversityRecord({
-      metricCode: formMetric,
-      department: formDept,
-      period: formPeriod,
-      value,
-    });
-    addToast('Diversity snapshot recorded', 'success');
-    setIsSnapshotOpen(false);
-    setFormValue('');
-    refresh();
+    try {
+      await socialMetricsService.addDiversityRecord({
+        metricCode: formMetric,
+        department: formDept,
+        period: formPeriod,
+        value,
+      });
+      addToast('Diversity snapshot recorded', 'success');
+      setIsSnapshotOpen(false);
+      setFormValue('');
+      await reload();
+    } catch (err) {
+      addToast(errMessage(err), 'error');
+    }
   };
 
   const columns: Column<MetricRow>[] = [
@@ -204,7 +235,7 @@ export default function Diversity() {
             onChange={e => setSelectedPeriod(e.target.value)}
             className="text-xs px-3 py-2 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal font-semibold text-neutral-text-dark"
           >
-            {QUARTERS.map(q => <option key={q} value={q}>{q}</option>)}
+            {periodOptions.map(q => <option key={q} value={q}>{q}</option>)}
           </select>
           <select
             value={selectedDept}
@@ -216,7 +247,7 @@ export default function Diversity() {
           </select>
           {canManage && (
             <button
-              onClick={() => { setFormPeriod(selectedPeriod); setFormDept(selectedDept === 'All' ? departments[0] : selectedDept); setIsSnapshotOpen(true); }}
+              onClick={() => { setFormMetric(definitions[0]?.code ?? ''); setFormPeriod(selectedPeriod); setFormDept(selectedDept === 'All' ? (departments[0] ?? '') : selectedDept); setIsSnapshotOpen(true); }}
               className="bg-primary-teal hover:bg-primary-teal-dark text-white font-black text-xs uppercase tracking-wider py-2.5 px-4 rounded-xl flex items-center gap-2 transition shadow-sm"
             >
               <Plus className="h-4 w-4" />
@@ -358,7 +389,7 @@ export default function Diversity() {
               onChange={e => setFormPeriod(e.target.value)}
               className="w-full text-xs px-3.5 py-2.5 border border-neutral-border rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal font-semibold text-neutral-text-dark bg-white"
             >
-              {QUARTERS.map(q => <option key={q} value={q}>{q}</option>)}
+              {periodOptions.map(q => <option key={q} value={q}>{q}</option>)}
             </select>
           </div>
           <div className="space-y-1.5">
@@ -381,7 +412,16 @@ export default function Diversity() {
         <MetricDefinitionsDialog
           definitions={definitions}
           onClose={() => setIsDefinitionsOpen(false)}
-          onSave={defs => { socialMetricsService.saveDefinitions(defs); refresh(); }}
+          onSave={async defs => {
+            try {
+              await socialMetricsService.syncDefinitions(definitions, defs);
+              addToast('Metric definitions updated', 'success');
+              setIsDefinitionsOpen(false);
+              await reload();
+            } catch (err) {
+              addToast(errMessage(err), 'error');
+            }
+          }}
         />
       )}
     </div>
@@ -394,7 +434,7 @@ export default function Diversity() {
 interface DefsDialogProps {
   definitions: MetricDefinition[];
   onClose: () => void;
-  onSave: (defs: MetricDefinition[]) => void;
+  onSave: (defs: MetricDefinition[]) => void | Promise<void>;
 }
 
 const MetricDefinitionsDialog: React.FC<DefsDialogProps> = ({ definitions, onClose, onSave }) => {
@@ -415,7 +455,7 @@ const MetricDefinitionsDialog: React.FC<DefsDialogProps> = ({ definitions, onClo
     }
     const normalizedCode = code.toUpperCase().replace(/\s+/g, '_');
     if (editingCode) {
-      setDefs(defs.map(d => d.code === editingCode ? { code: normalizedCode, name, unit, higherIsBetter } : d));
+      setDefs(defs.map(d => d.code === editingCode ? { ...d, name, unit, higherIsBetter } : d));
     } else {
       if (defs.some(d => d.code === normalizedCode)) {
         addToast('A metric with this code already exists', 'warning');
@@ -433,9 +473,7 @@ const MetricDefinitionsDialog: React.FC<DefsDialogProps> = ({ definitions, onClo
   const handleDelete = (code: string) => setDefs(defs.filter(d => d.code !== code));
 
   const handleSaveAll = () => {
-    onSave(defs);
-    addToast('Metric definitions updated', 'success');
-    onClose();
+    void onSave(defs);
   };
 
   return (

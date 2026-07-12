@@ -1,8 +1,9 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/auth';
 import { useSettings } from '../../context/SettingsContext';
-import { gamificationService } from '../../services/gamificationService';
-import { Badge, Employee } from '../../types';
+import { badgesService } from '../../services/badgesService';
+import { Badge } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
 import * as LucideIcons from 'lucide-react';
 import {
@@ -27,19 +28,12 @@ export default function Badges() {
   const { settings } = useSettings();
 
   // Load state and lookups
-  const badges = useMemo(() => gamificationService.getBadges(), []);
-  const badgeAwards = useMemo(() => gamificationService.getBadgeAwards(), []);
-  const employees = useMemo(() => gamificationService.getEmployees(), []);
-
-  // Current Employee ID
-  const currentEmployee = useMemo(() => {
-    if (!user) return null;
-    return employees.find(e => e.email === user.email) || null;
-  }, [user, employees]);
+  const { employeeId } = useAuth();
+  const currentEmployee = employeeId ? { id: employeeId, xp: user?.xp ?? 0, level: user?.level ?? 1, email: user?.email ?? '' } : null;
 
   // States
-  const [badgeList, setBadgeList] = useState<Badge[]>(badges);
-  const [awardsList, setAwardsList] = useState(badgeAwards);
+  const [badgeList, setBadgeList] = useState<Badge[]>([]);
+  const [awardsList, setAwardsList] = useState<{ id: string; badgeId: string; employeeId: string; awardedAt: string }[]>([]);
   const [selectedBadge, setSelectedBadge] = useState<Badge | null>(null);
   
   // Celebration modal
@@ -60,34 +54,31 @@ export default function Badges() {
   const [builderError, setBuilderError] = useState('');
   const [builderSuccess, setBuilderSuccess] = useState(false);
 
-  // Sync data from database on load/changes
-  const refreshData = () => {
-    setBadgeList(gamificationService.getBadges());
-    setAwardsList(gamificationService.getBadgeAwards());
+  // Sync data from the backend on load/changes
+  const refreshData = async () => {
+    const [b, a] = await Promise.all([
+      badgesService.getBadges().catch(() => [] as Badge[]),
+      badgesService.getBadgeAwards().catch(() => []),
+    ]);
+    setBadgeList(b);
+    setAwardsList(a);
   };
 
   useEffect(() => {
-    refreshData();
+    void refreshData();
   }, [isBuilderOpen]);
 
-  // Compute metrics for current employee to render locks & progression percentages
+  // Metrics powering progress bars (backend unlock metrics: xp_total, challenges_completed, csr_completed).
   const employeeMetrics = useMemo(() => {
-    if (!currentEmployee) return {};
-    const participations = gamificationService.getParticipations().filter(p => p.employeeId === currentEmployee.id && p.status === 'Completed');
-    const redemptions = gamificationService.getRewardRedemptions().filter(r => r.employeeId === currentEmployee.id && r.status === 'Completed');
-
+    if (!currentEmployee) return {} as Record<string, number>;
     return {
+      xp_total: currentEmployee.xp,
       xp: currentEmployee.xp,
       level: currentEmployee.level,
-      challenges_completed: participations.length,
-      rewards_redeemed: redemptions.length,
-      carbon_saved: Math.round(participations.length * 20),
-      entries_logged: Math.round(currentEmployee.xp / 100),
-      policies_signed: 5,
-      zero_waste_score: 95,
-      issues_closed: 3
-    };
-  }, [currentEmployee]);
+      challenges_completed: awardsList.filter(a => a.employeeId === currentEmployee.id).length,
+      csr_completed: 0,
+    } as Record<string, number>;
+  }, [currentEmployee, awardsList]);
 
   // Separate earned vs locked badges
   const badgeStates = useMemo(() => {
@@ -136,7 +127,7 @@ export default function Badges() {
     }
   };
 
-  const handleCreateRule = (e: React.FormEvent) => {
+  const handleCreateRule = async (e: React.FormEvent) => {
     e.preventDefault();
     setBuilderError('');
     setBuilderSuccess(false);
@@ -152,7 +143,7 @@ export default function Badges() {
     }
 
     try {
-      const created = gamificationService.createBadgeRule(ruleForm);
+      const created = await badgesService.createBadge(ruleForm);
       setBuilderSuccess(true);
       
       // If we want to simulate an unlock celebration of our newly created rule instantly

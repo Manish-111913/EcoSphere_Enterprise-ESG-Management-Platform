@@ -12,7 +12,8 @@ import {
   Settings as SettingsIcon, Sliders, Palette, ShieldAlert, Key, ClipboardList,
   Upload, Save, Plus, Trash2, CheckCircle, Search, ToggleLeft, ToggleRight, AlertTriangle
 } from 'lucide-react';
-import { mockEmployees } from '../mocks/db';
+import { api } from '../services/apiClient';
+import { reference } from '../services/referenceData';
 
 interface LookupItem {
   id: string;
@@ -221,12 +222,26 @@ export default function Settings() {
   const [auditSearch, setAuditSearch] = useState('');
 
   useEffect(() => {
-    const initialLogs: AuditLog[] = [
-      { id: 'AUD-9081', timestamp: '2026-07-11 14:32:10', actor: { name: 'Eleanor Vance', avatar: mockEmployees[0].avatar }, action: 'Emissions Standard Updated', entity: 'Scope 1 EPA v2', details: 'Configured CO2 equivalent factor coefficient to 0.42 t' },
-      { id: 'AUD-8971', timestamp: '2026-07-11 11:15:45', actor: { name: 'David Miller', avatar: mockEmployees[1].avatar }, action: 'Workflow Hook Toggled', entity: 'Policy acknowledgement check', details: 'Set evidence required bypass toggle to ON for challenges' },
-      { id: 'AUD-7410', timestamp: '2026-07-10 09:30:12', actor: { name: 'Jane Doe', avatar: mockEmployees[2].avatar }, action: 'Challenge Created', entity: 'Zero Waste Week', details: 'Added new carbon saving task with +150 XP reward' },
-    ];
-    setAuditLogs(initialLogs);
+    (async () => {
+      try {
+        const res = await api.get<{ id: string; actorId: string | null; action: string; entityType: string | null; entityId: string | null; createdAt: string }[] | { data: { id: string; actorId: string | null; action: string; entityType: string | null; entityId: string | null; createdAt: string }[] }>('/audit-logs?size=25');
+        const rows = Array.isArray(res) ? res : res.data;
+        const mapped: AuditLog[] = await Promise.all(rows.map(async (r) => {
+          const name = r.actorId ? await reference.userNameById(r.actorId).catch(() => 'System') : 'System';
+          return {
+            id: r.id.slice(0, 8).toUpperCase(),
+            timestamp: (r.createdAt || '').replace('T', ' ').slice(0, 19),
+            actor: { name, avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0D9488&color=fff` },
+            action: r.action,
+            entity: r.entityType ?? '—',
+            details: `${r.action} on ${r.entityType ?? 'entity'}${r.entityId ? ` (${r.entityId.slice(0, 8)})` : ''}`,
+          };
+        }));
+        setAuditLogs(mapped);
+      } catch {
+        setAuditLogs([]);
+      }
+    })();
   }, []);
 
   const filteredLogs = auditLogs.filter(log =>
