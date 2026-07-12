@@ -12,4 +12,14 @@ export class MeController {
   summary(@CurrentUser() user: AuthenticatedUser) {
     return this.users.meSummary(user.id);
   }
+
+  @Get('xp')
+  xp(@CurrentUser() user: AuthenticatedUser) {
+    return this.users.xp(user.id);
+  }
+
+  @Get('badges')
+  badges(@CurrentUser() user: AuthenticatedUser) {
+    return this.users.badges(user.id);
+  }
 }
