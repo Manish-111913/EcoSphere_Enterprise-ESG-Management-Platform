@@ -29,7 +29,9 @@ import {
   Sliders,
   ChevronLeft,
   Activity,
-  FolderTree
+  FolderTree,
+  Scale,
+  GraduationCap
 } from 'lucide-react';
 import { UserRole } from '../types';
 
@@ -95,7 +97,9 @@ export default function Sidebar() {
       roles: ['Admin', 'CSR Manager', 'Department Head', 'Employee'],
       items: [
         { name: 'CSR Activities', path: '/social/csr-activities', icon: Calendar },
-        { name: 'Participation', path: '/social/participation', icon: ClipboardCheck }
+        { name: 'Participation', path: '/social/participation', icon: ClipboardCheck },
+        { name: 'Diversity', path: '/social/diversity', icon: Scale },
+        { name: 'Training', path: '/social/training', icon: GraduationCap }
       ]
     },
     {

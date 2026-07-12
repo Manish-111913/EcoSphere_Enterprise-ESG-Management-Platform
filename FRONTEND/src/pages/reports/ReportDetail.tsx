@@ -7,8 +7,9 @@ import {
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar, LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, ReferenceLine
 } from 'recharts';
+import { socialMetricsService } from '../../services/socialMetricsService';
 
 import {
   mockDepartments, mockEmployees, mockChallenges, mockCarbonTransactions,
@@ -587,6 +588,35 @@ export default function ReportDetail() {
                     <Tooltip />
                     <Line type="monotone" dataKey="hours" stroke="#6366F1" strokeWidth={2.5} activeDot={{ r: 6 }} />
                   </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Training Completion section */}
+            <div className="bg-white border border-neutral-border rounded-xl p-5 shadow-sm flex flex-col justify-between md:col-span-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xs font-bold text-neutral-text-dark">Training Completion by Department</h3>
+                  <p className="text-[11px] text-neutral-text-muted">Mandatory learning coverage against the 90% target line</p>
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-wider text-teal-700 bg-teal-50 border border-teal-200 px-2.5 py-1 rounded-full">
+                  {socialMetricsService.trainingCompletionPct('All')}% org-wide
+                </span>
+              </div>
+              <div className="h-64 mt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={socialMetricsService.completionByDepartment()} margin={{ top: 10, right: 20, left: -25, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" />
+                    <XAxis dataKey="department" fontSize={9} stroke="#64748B" tickLine={false} interval={0} angle={-15} textAnchor="end" height={50} />
+                    <YAxis fontSize={10} stroke="#64748B" tickLine={false} domain={[0, 100]} />
+                    <Tooltip formatter={(v: number) => [`${v}%`, 'Completion']} />
+                    <ReferenceLine y={90} stroke="#F59E0B" strokeDasharray="4 4" strokeWidth={2} />
+                    <Bar dataKey="completion" radius={[4, 4, 0, 0]}>
+                      {socialMetricsService.completionByDepartment().map((d, i) => (
+                        <Cell key={i} fill={d.completion >= 90 ? '#10B981' : '#0D9488'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
             </div>

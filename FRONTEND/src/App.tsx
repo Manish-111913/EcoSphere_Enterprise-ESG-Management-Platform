@@ -30,6 +30,8 @@ import Leaderboard from './pages/gamification/Leaderboard';
 // Social Module Pages
 import CsrActivities from './pages/social/CsrActivities';
 import Participation from './pages/social/Participation';
+import Diversity from './pages/social/Diversity';
+import Training from './pages/social/Training';
 
 // Governance Module Pages
 import Policies from './pages/governance/Policies';
@@ -98,6 +100,8 @@ export default function App() {
                   {/* Social Module Routes */}
                   <Route path="social/csr-activities" element={<CsrActivities />} />
                   <Route path="social/participation" element={<Participation />} />
+                  <Route path="social/diversity" element={<Diversity />} />
+                  <Route path="social/training" element={<Training />} />
 
                   {/* Governance Module Routes */}
                   <Route path="governance/policies" element={<Policies />} />

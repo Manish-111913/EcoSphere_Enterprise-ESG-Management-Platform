@@ -671,7 +671,6 @@ export default function Departments() {
       <ConfirmDialog
         isOpen={isDeleteDialogOpen}
         onClose={() => setIsDeleteDialogOpen(false)}
-        onConfirm={handleConfirmDelete}
         title={isDeleteBlocked ? "Deletion Blocked" : "Confirm Deletion"}
         description={
           isDeleteBlocked 
@@ -821,7 +820,7 @@ interface TreeNodeProps {
   isAdmin: boolean;
 }
 
-function TreeNode({
+const TreeNode: React.FC<TreeNodeProps> = ({
   dept,
   getChildren,
   expandedNodes,
@@ -831,7 +830,7 @@ function TreeNode({
   handleOpenEdit,
   handleDeleteAttempt,
   isAdmin
-}: TreeNodeProps) {
+}) => {
   const children = getChildren(dept.id);
   const isExpanded = expandedNodes[dept.id] || false;
   const metrics = departmentMetrics[dept.id] || { employeeCount: 0, scores: { total: 75.0 } };

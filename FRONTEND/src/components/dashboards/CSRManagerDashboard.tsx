@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Award, Trophy, Users, CheckCircle, XCircle, Calendar, Gift, Flame, ShieldAlert } from 'lucide-react';
+import { Award, Trophy, Users, CheckCircle, XCircle, Calendar, Gift, Flame, ShieldAlert, GraduationCap } from 'lucide-react';
 import { useToast } from '../ui-kit/Toast';
 import { mockChallenges, mockCsrActivities, mockCsrParticipations, mockEmployees } from '../../mocks/db';
+import { socialMetricsService } from '../../services/socialMetricsService';
 
 export default function CSRManagerDashboard() {
   const { addToast } = useToast();
@@ -33,11 +34,12 @@ export default function CSRManagerDashboard() {
 
   const activeChallenges = challenges.filter((c: any) => c.status === 'Active');
   const activeCsr = mockCsrActivities.filter(a => a.status === 'Active');
+  const trainingCompletion = socialMetricsService.trainingCompletionPct('All');
 
   return (
     <div className="space-y-6">
       {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white border border-neutral-border rounded-xl p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-neutral-text-muted">Total CSR Events</span>
@@ -91,6 +93,20 @@ export default function CSRManagerDashboard() {
           </div>
           <p className="text-[11px] text-purple-600 font-bold mt-1.5">
             +5.2% vs previous quarter
+          </p>
+        </div>
+
+        <div className="bg-white border border-neutral-border rounded-xl p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-neutral-text-muted">Training Completion</span>
+            <span className="p-1.5 bg-teal-50 text-teal-700 rounded-lg"><GraduationCap size={16} /></span>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-2xl font-black text-neutral-text-dark">{trainingCompletion}%</span>
+            <span className="text-xs font-bold text-neutral-text-muted">org-wide</span>
+          </div>
+          <p className="text-[11px] text-teal-600 font-bold mt-1.5">
+            Mandatory learning coverage
           </p>
         </div>
       </div>

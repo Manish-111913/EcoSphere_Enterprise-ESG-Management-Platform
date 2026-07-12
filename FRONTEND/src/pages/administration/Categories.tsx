@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   FolderTree, Plus, Search, Edit, Trash2, Heart, Award, Shield, Sparkles, 
   Settings, Check, LayoutGrid, CheckSquare, Layers, HelpCircle, Palette, ChevronRight
@@ -8,32 +8,9 @@ import { useToast } from '../../components/ui-kit/Toast';
 import FormDrawer from '../../components/ui-kit/FormDrawer';
 import ConfirmDialog from '../../components/ui-kit/ConfirmDialog';
 import StatusBadge from '../../components/ui-kit/StatusBadge';
-
-interface CategoryItem {
-  id: string;
-  type: 'csr' | 'challenge';
-  name: string;
-  code: string;
-  description: string;
-  color: string;
-  icon: string;
-  status: 'Active' | 'Inactive';
-}
-
-const DEFAULT_CATEGORIES: CategoryItem[] = [
-  // CSR
-  { id: 'cat-1', type: 'csr', name: 'Carbon Offsetting', code: 'OFFSET', description: 'Projects focused on neutralizing greenhouse gas emissions.', color: '#0EA5E9', icon: 'Leaf', status: 'Active' },
-  { id: 'cat-2', type: 'csr', name: 'Zero Waste Initiatives', code: 'ZEROWASTE', description: 'Reducing plastic consumption and optimizing corporate recycling.', color: '#10B981', icon: 'Trash2', status: 'Active' },
-  { id: 'cat-3', type: 'csr', name: 'Clean Energy Integration', code: 'CLEANENERGY', description: 'Transitioning workspace grids to solar, wind, or hydropower.', color: '#F59E0B', icon: 'Sun', status: 'Active' },
-  { id: 'cat-4', type: 'csr', name: 'Employee Wellness', code: 'WELLNESS', description: 'Health, wellness, and mental fitness programs across business units.', color: '#EC4899', icon: 'Heart', status: 'Active' },
-  { id: 'cat-5', type: 'csr', name: 'Community Impact', code: 'COMMUNITY', description: 'Local neighborhood outreach, planting, and volunteering activities.', color: '#8B5CF6', icon: 'Users', status: 'Active' },
-  
-  // Challenge
-  { id: 'cat-6', type: 'challenge', name: 'Pillar Challenge', code: 'PILLAR', description: 'Core strategic compliance campaigns aligning directly with ESG targets.', color: '#10B981', icon: 'Award', status: 'Active' },
-  { id: 'cat-7', type: 'challenge', name: 'Monthly Blitz', code: 'BLITZ', description: 'Short high-intensity sprints driving healthy department competition.', color: '#EF4444', icon: 'Zap', status: 'Active' },
-  { id: 'cat-8', type: 'challenge', name: 'Habit Builder', code: 'HABIT', description: 'Recurring micro-activities building lasting green routines.', color: '#3B82F6', icon: 'Activity', status: 'Active' },
-  { id: 'cat-9', type: 'challenge', name: 'Department Quest', code: 'QUEST', description: 'Collaborative team missions focused on specific branch operations.', color: '#F59E0B', icon: 'Flag', status: 'Active' }
-];
+import { CategoryItem, categoryStore, useCategories } from '../../mocks/categoryStore';
+import { socialGovernanceService } from '../../services/socialGovernanceService';
+import { gamificationService } from '../../services/gamificationService';
 
 const PRESET_COLORS = [
   '#10B981', // Emerald
@@ -54,8 +31,8 @@ export default function Categories() {
   const { role } = useApp();
   const { addToast } = useToast();
 
-  // State
-  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  // State — categories come from the shared live store
+  const categories = useCategories();
   const [activeTab, setActiveTab] = useState<'csr' | 'challenge'>('csr');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -75,22 +52,28 @@ export default function Categories() {
   // Confirm delete dialog state
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<CategoryItem | null>(null);
-
-  // Initial Load
-  useEffect(() => {
-    const stored = localStorage.getItem('ecosphere_categories');
-    if (stored) {
-      setCategories(JSON.parse(stored));
-    } else {
-      localStorage.setItem('ecosphere_categories', JSON.stringify(DEFAULT_CATEGORIES));
-      setCategories(DEFAULT_CATEGORIES);
-    }
-  }, []);
+  const [isDeleteBlocked, setIsDeleteBlocked] = useState(false);
+  const [blockedMessage, setBlockedMessage] = useState('');
 
   const saveCategories = (updated: CategoryItem[]) => {
-    localStorage.setItem('ecosphere_categories', JSON.stringify(updated));
-    setCategories(updated);
+    categoryStore.save(updated);
   };
+
+  // Usage count — how many activities / challenges reference each category by name.
+  // Drives the "In use" badge and the delete-block guard.
+  const usageByName = useMemo(() => {
+    const counts: Record<string, number> = {};
+    socialGovernanceService.getActivities().forEach(act => {
+      if (act.category) counts[act.category] = (counts[act.category] || 0) + 1;
+    });
+    gamificationService.getChallenges().forEach(ch => {
+      const c = (ch as { category?: string }).category;
+      if (c) counts[c] = (counts[c] || 0) + 1;
+    });
+    return counts;
+  }, [categories]);
+
+  const getUsage = (cat: CategoryItem) => usageByName[cat.name] || 0;
 
   // Unique Code Validation
   const codeError = useMemo(() => {
@@ -178,9 +161,20 @@ export default function Categories() {
     setIsFormOpen(false);
   };
 
-  // Delete category attempt
+  // Delete category attempt — blocked when the category is still in use
   const handleDeleteAttempt = (cat: CategoryItem) => {
+    const usage = getUsage(cat);
     setItemToDelete(cat);
+    if (usage > 0) {
+      setIsDeleteBlocked(true);
+      const noun = cat.type === 'csr'
+        ? (usage === 1 ? 'activity' : 'activities')
+        : (usage === 1 ? 'challenge' : 'challenges');
+      setBlockedMessage(`Cannot delete "${cat.name}" — in use by ${usage} ${noun}. Deactivate instead.`);
+    } else {
+      setIsDeleteBlocked(false);
+      setBlockedMessage('');
+    }
     setIsDeleteDialogOpen(true);
   };
 
@@ -191,6 +185,18 @@ export default function Categories() {
     addToast('Category deleted successfully', 'success');
     setIsDeleteDialogOpen(false);
     setItemToDelete(null);
+  };
+
+  const handleDeactivateInstead = () => {
+    if (!itemToDelete) return;
+    const updated = categories.map(cat =>
+      cat.id === itemToDelete.id ? { ...cat, status: 'Inactive' as const } : cat
+    );
+    saveCategories(updated);
+    addToast(`"${itemToDelete.name}" deactivated`, 'success');
+    setIsDeleteDialogOpen(false);
+    setItemToDelete(null);
+    setIsDeleteBlocked(false);
   };
 
   // Filter categories by search and active tab type
@@ -228,6 +234,14 @@ export default function Categories() {
             Add {activeTab === 'csr' ? 'CSR Category' : 'Challenge Category'}
           </button>
         )}
+      </div>
+
+      {/* Live-sync info banner */}
+      <div className="flex items-start gap-2.5 bg-primary-teal/5 border border-primary-teal/20 text-primary-teal-dark px-4 py-3 rounded-xl">
+        <Sparkles className="h-4 w-4 shrink-0 mt-0.5 text-primary-teal" />
+        <p className="text-[11px] font-semibold leading-relaxed">
+          Categories added here immediately appear in the CSR activity and Challenge creation forms — no redeploy needed.
+        </p>
       </div>
 
       {/* Tabs list switch bar */}
@@ -323,7 +337,9 @@ export default function Categories() {
 
               <div className="flex items-center justify-between border-t border-neutral-border/60 pt-3 mt-1">
                 <span className="text-[9px] uppercase tracking-wider font-bold text-neutral-text-muted">
-                  Type: {cat.type === 'csr' ? 'Social Pillar' : 'Gamification'}
+                  {getUsage(cat) > 0
+                    ? `In use · ${getUsage(cat)} ${cat.type === 'csr' ? 'activities' : 'challenges'}`
+                    : `Type: ${cat.type === 'csr' ? 'Social Pillar' : 'Gamification'}`}
                 </span>
                 {role === 'Admin' && (
                   <div className="flex items-center gap-1.5">
@@ -480,15 +496,19 @@ export default function Categories() {
         </form>
       </FormDrawer>
 
-      {/* CONFIRM DELETE DIALOG */}
+      {/* CONFIRM DELETE DIALOG — blocks when the category is in use */}
       <ConfirmDialog
         isOpen={isDeleteDialogOpen}
         onClose={() => setIsDeleteDialogOpen(false)}
-        onConfirm={handleConfirmDelete}
-        title="Confirm Deletion"
-        description={`Are you absolutely sure you want to delete the category "${itemToDelete?.name}"? This action cannot be undone.`}
-        confirmLabel="Delete"
-        isDestructive={true}
+        onConfirm={isDeleteBlocked ? handleDeactivateInstead : handleConfirmDelete}
+        title={isDeleteBlocked ? 'Deletion Blocked' : 'Confirm Deletion'}
+        description={
+          isDeleteBlocked
+            ? blockedMessage
+            : `Are you absolutely sure you want to delete the category "${itemToDelete?.name}"? This action cannot be undone.`
+        }
+        confirmLabel={isDeleteBlocked ? 'Deactivate Instead' : 'Delete'}
+        isDestructive={!isDeleteBlocked}
       />
     </div>
   );

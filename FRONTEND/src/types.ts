@@ -152,6 +152,7 @@ export interface Challenge {
   id: string;
   title: string;
   description: string;
+  category?: string;
   pillar: 'E' | 'S' | 'G';
   status: 'Draft' | 'Active' | 'Under Review' | 'Completed' | 'Archived';
   points: number;

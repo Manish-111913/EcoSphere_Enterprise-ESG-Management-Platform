@@ -12,11 +12,22 @@ export interface ToastMessage {
   duration?: number;
 }
 
+// Some call sites pass an options object ({ title, description, type }) instead
+// of positional args — addToast accepts both shapes.
+type AddToastArg =
+  | string
+  | { title?: string; message?: string; description?: string; type?: ToastType | 'danger' };
+
 interface ToastContextType {
   toast: (message: string, type?: ToastType, description?: string, duration?: number) => void;
+  addToast: (arg: AddToastArg, type?: ToastType | 'danger', description?: string, duration?: number) => void;
   toasts: ToastMessage[];
   removeToast: (id: string) => void;
 }
+
+// 'danger' is used in a few call sites — normalize it to the supported 'error'.
+const normalizeType = (type?: ToastType | 'danger'): ToastType =>
+  type === 'danger' ? 'error' : (type ?? 'info');
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
@@ -29,12 +40,31 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setToasts(prev => [...prev, newToast]);
   };
 
+  // Compatibility wrapper: accepts either positional args or an options object.
+  const addToast = (
+    arg: AddToastArg,
+    type?: ToastType | 'danger',
+    description?: string,
+    duration?: number
+  ) => {
+    if (typeof arg === 'string') {
+      toast(arg, normalizeType(type), description, duration);
+    } else {
+      toast(
+        arg.title ?? arg.message ?? '',
+        normalizeType(arg.type),
+        arg.description,
+        duration
+      );
+    }
+  };
+
   const removeToast = (id: string) => {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
   return (
-    <ToastContext.Provider value={{ toast, toasts, removeToast }}>
+    <ToastContext.Provider value={{ toast, addToast, toasts, removeToast }}>
       {children}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-md w-full pointer-events-none">
         <AnimatePresence>

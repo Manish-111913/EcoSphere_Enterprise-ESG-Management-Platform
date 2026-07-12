@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { useSettings } from '../../context/SettingsContext';
 import { gamificationService } from '../../services/gamificationService';
+import { useCategories } from '../../mocks/categoryStore';
 import { Challenge, UserRole } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -33,11 +34,19 @@ export default function Challenges() {
   const [pillarFilter, setPillarFilter] = useState<string>('all');
   const [difficultyFilter, setDifficultyFilter] = useState<string>('all');
   
+  // Live challenge categories from the shared master store
+  const allCategories = useCategories();
+  const challengeCategories = useMemo(
+    () => allCategories.filter(c => c.type === 'challenge' && c.status === 'Active'),
+    [allCategories]
+  );
+
   // Create Challenge Drawer State
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     description: '',
+    category: '',
     pillar: 'E' as 'E' | 'S' | 'G',
     difficulty: 'Medium' as 'Easy' | 'Medium' | 'Hard',
     xp: 100,
@@ -149,6 +158,7 @@ export default function Challenges() {
       gamificationService.createChallenge({
         title: formData.title,
         description: formData.description,
+        category: formData.category || undefined,
         pillar: formData.pillar,
         status: formData.status,
         points: Number(formData.points),
@@ -161,6 +171,7 @@ export default function Challenges() {
       setFormData({
         title: '',
         description: '',
+        category: '',
         pillar: 'E',
         difficulty: 'Medium',
         xp: 100,
@@ -516,6 +527,23 @@ export default function Challenges() {
                       onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                       className="w-full bg-neutral-bg hover:bg-neutral-border/20 focus:bg-white text-sm px-3.5 py-2 rounded-button border border-neutral-border focus:border-primary-teal focus:ring-1 focus:ring-primary-teal outline-none transition-all placeholder:text-neutral-text-muted text-neutral-text-dark resize-none"
                     />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-neutral-text-dark">Category</label>
+                    <select
+                      value={formData.category}
+                      onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+                      className="w-full bg-neutral-bg hover:bg-neutral-border/20 text-sm px-3.5 py-2 rounded-button border border-neutral-border outline-none transition-all text-neutral-text-dark"
+                    >
+                      <option value="">Select a category…</option>
+                      {challengeCategories.map(cat => (
+                        <option key={cat.id} value={cat.name}>{cat.name}</option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-neutral-text-muted mt-1">
+                      Managed in Administration → Categories. New categories appear here instantly.
+                    </p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">

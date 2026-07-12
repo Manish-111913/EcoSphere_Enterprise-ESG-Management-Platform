@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useSettings } from '../../context/SettingsContext';
 import { socialGovernanceService } from '../../services/socialGovernanceService';
+import { useCategories } from '../../mocks/categoryStore';
 import { useToast } from '../../components/ui-kit/Toast';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -45,7 +46,9 @@ export default function CsrActivities() {
   // Find the active logged-in employee
   const currentEmployee = employees.find(emp => emp.email === user?.email) || employees[0];
 
-  const categories = ['All', 'Community Engagement', 'Employee Wellbeing', 'Diversity & Inclusion', 'Skills & Education'];
+  // CSR categories come live from the shared category master store
+  const csrCategories = useCategories().filter(c => c.type === 'csr' && c.status === 'Active');
+  const categories = ['All', ...csrCategories.map(c => c.name)];
 
   // Filtering
   const filteredActivities = activities.filter(act => {
