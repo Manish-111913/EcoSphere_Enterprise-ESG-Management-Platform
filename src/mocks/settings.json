@@ -1,0 +1,6 @@
+{
+  "autoEmissionCalc": true,
+  "evidenceRequired": true,
+  "badgeAutoAward": true,
+  "emailNotifications": false
+}
