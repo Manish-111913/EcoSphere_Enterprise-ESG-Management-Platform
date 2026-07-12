@@ -72,6 +72,12 @@ export class JwtAuthGuard implements CanActivate {
 
     const roleIds = user.userRoles.map((ur) => ur.roleId);
     const roleNames = user.userRoles.map((ur) => ur.role.name);
+    // Self-heal a stale RBAC cache: if the user carries a role id the cache has
+    // never seen (typically after a DB reseed that churned role ids), reload
+    // once so we don't 403 every request until the process restarts.
+    if (roleIds.length > 0 && !this.authz.hasAllRoles(roleIds)) {
+      await this.authz.reload();
+    }
     const authed: AuthenticatedUser = {
       id: user.id,
       email: user.email,

@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { LayoutDashboard, Flame, Award, User } from 'lucide-react';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
+import RouteErrorBoundary from './RouteErrorBoundary';
 
 export default function AppShell() {
   const { isLoggedIn, role } = useApp();
@@ -21,7 +22,9 @@ export default function AppShell() {
         <Topbar />
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
           <div className="max-w-7xl mx-auto space-y-6">
-            <Outlet />
+            <RouteErrorBoundary resetKey={location.pathname}>
+              <Outlet />
+            </RouteErrorBoundary>
           </div>
         </main>
       </div>

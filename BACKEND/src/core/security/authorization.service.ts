@@ -55,6 +55,16 @@ export class AuthorizationService implements OnModuleInit {
     return Array.from(set).sort();
   }
 
+  /**
+   * True when every role id is present in the cache. A miss means the cache is
+   * stale relative to the DB (e.g. the DB was reseeded with new role ids while
+   * the process kept running) — callers should reload before trusting an empty
+   * permission set, otherwise the whole app 403s until the next restart.
+   */
+  hasAllRoles(roleIds: string[]): boolean {
+    return roleIds.every((id) => this.byRole.has(id));
+  }
+
   /** Short, stable hash of an effective permission set (JWT `ph` claim). */
   permissionHash(permissions: string[]): string {
     return createHash('sha256')
@@ -63,3 +73,4 @@ export class AuthorizationService implements OnModuleInit {
       .slice(0, 16);
   }
 }
+
