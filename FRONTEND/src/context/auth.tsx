@@ -1,11 +1,14 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole } from '../types';
-import { gamificationService } from '../services/gamificationService';
+import { apiAuth, BackendUser, MeSummary } from '../services/apiAuth';
+import { tokens } from '../services/apiClient';
 
 interface AuthContextType {
   isLoggedIn: boolean;
   user: User | null;
+  employeeId: string | null;
   role: UserRole;
+  permissions: string[];
   loading: boolean;
   login: (email: string, password?: string) => Promise<void>;
   signup: (details: any) => Promise<void>;
@@ -14,161 +17,175 @@ interface AuthContextType {
   verifyEmail: (token: string) => Promise<void>;
   acceptInvite: (token: string, name: string, password?: string, role?: UserRole, department?: string) => Promise<void>;
   logout: () => void;
-  quickDemoLogin: (role: UserRole) => void;
+  quickDemoLogin: (role: UserRole) => Promise<void>;
+  refreshUser: () => Promise<void>;
+}
+
+const KNOWN_ROLES: UserRole[] = [
+  'Admin', 'ESG Manager', 'CSR Manager', 'Compliance Officer', 'Department Head', 'Employee', 'Auditor',
+];
+
+// Seeded demo credentials (spec §A11) — all password Demo@123.
+const ROLE_EMAILS: Record<UserRole, string> = {
+  'Admin': 'admin@ecosphere.demo',
+  'ESG Manager': 'esg@ecosphere.demo',
+  'CSR Manager': 'csr@ecosphere.demo',
+  'Compliance Officer': 'compliance@ecosphere.demo',
+  'Department Head': 'head@ecosphere.demo',
+  'Employee': 'employee@ecosphere.demo',
+  'Auditor': 'auditor@ecosphere.demo',
+};
+
+function pickRole(roles: string[]): UserRole {
+  return (roles.find((r) => KNOWN_ROLES.includes(r as UserRole)) as UserRole) || 'Employee';
+}
+
+function toUser(bu: BackendUser, summary?: MeSummary | null): User {
+  const name = `${bu.firstName} ${bu.lastName}`.trim();
+  return {
+    name,
+    email: bu.email,
+    avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0D9488&color=fff`,
+    role: pickRole(bu.roles),
+    points: summary?.xpBalance ?? 0,
+    level: summary?.level ?? 1,
+    xp: summary?.xpBalance ?? 0,
+  };
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
-    return localStorage.getItem('ecosphere_logged_in') === 'true';
-  });
-  
-  const [role, setRoleState] = useState<UserRole>(() => {
-    return (localStorage.getItem('ecosphere_role') as UserRole) || 'Admin';
-  });
-
-  const [user, setUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('ecosphere_user');
-    return saved ? JSON.parse(saved) : null;
-  });
-
+  // Optimistic: assume a session if we hold a refresh token (confirmed by bootstrap).
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => !!tokens.getRefresh());
+  const [role, setRoleState] = useState<UserRole>(() => (localStorage.getItem('ecosphere_role') as UserRole) || 'Admin');
+  const [user, setUser] = useState<User | null>(null);
+  const [employeeId, setEmployeeId] = useState<string | null>(null);
+  const [permissions, setPermissions] = useState<string[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
 
-  // Synchronize user and roles when logged in
+  const applySession = (bu: BackendUser, roles: string[], perms: string[], summary?: MeSummary | null) => {
+    const r = pickRole(roles.length ? roles : bu.roles);
+    setUser(toUser(bu, summary));
+    setEmployeeId(bu.id);
+    setPermissions(perms);
+    setRoleState(r);
+    setIsLoggedIn(true);
+    localStorage.setItem('ecosphere_role', r);
+  };
+
+  // Bootstrap: if a refresh token exists, the api client will silently refresh
+  // the access token on the first 401 from /auth/me.
   useEffect(() => {
-    if (!isLoggedIn) {
-      setUser(null);
-      return;
-    }
-    
-    // Look up employee by role in gamification service or mock default
-    const emp = gamificationService.getEmployeeByRole(role);
-    if (emp) {
-      const u = {
-        name: emp.name,
-        email: emp.email,
-        avatar: emp.avatar,
-        role: emp.role,
-        points: emp.points,
-        level: emp.level,
-        xp: emp.xp,
-        department: emp.departmentId === 'dept-1' ? 'Operations' : 'Logistics'
-      };
-      setUser(u);
-      localStorage.setItem('ecosphere_user', JSON.stringify(u));
-    } else {
-      const u = {
-        name: 'Jane Doe',
-        email: 'jane.doe@ecosphere.com',
-        avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=150',
-        role: role,
-        points: 850,
-        level: 5,
-        xp: 2100,
-        department: 'Operations'
-      };
-      setUser(u);
-      localStorage.setItem('ecosphere_user', JSON.stringify(u));
-    }
-  }, [isLoggedIn, role]);
+    (async () => {
+      if (!tokens.getRefresh()) {
+        setIsLoggedIn(false);
+        return;
+      }
+      try {
+        const me = await apiAuth.me();
+        const summary = await apiAuth.summary().catch(() => null);
+        applySession(me.user, me.roles, me.permissions, summary);
+      } catch {
+        tokens.clear();
+        setIsLoggedIn(false);
+        setUser(null);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const hydrateAfterLogin = async (loginData: { user: BackendUser; permissions: string[] }) => {
+    const summary = await apiAuth.summary().catch(() => null);
+    applySession(loginData.user, loginData.user.roles, loginData.permissions, summary);
+  };
 
   const login = async (email: string, password?: string) => {
     setLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 700));
-    
-    if (email === 'wrong@demo.com') {
+    try {
+      const data = await apiAuth.login(email, password ?? '');
+      await hydrateAfterLogin(data);
+    } finally {
       setLoading(false);
-      throw new Error('Invalid credentials');
     }
+  };
 
-    // Try to match a mock employee by email
-    const matchedEmp = gamificationService.getEmployees().find(e => e.email.toLowerCase() === email.toLowerCase());
-    const assignedRole = matchedEmp?.role || 'Employee';
-
-    localStorage.setItem('ecosphere_logged_in', 'true');
-    localStorage.setItem('ecosphere_role', assignedRole);
-    if (matchedEmp) {
-      localStorage.setItem('ecosphere_user', JSON.stringify({
-        name: matchedEmp.name,
-        email: matchedEmp.email,
-        avatar: matchedEmp.avatar,
-        role: matchedEmp.role,
-        points: matchedEmp.points,
-        level: matchedEmp.level,
-        xp: matchedEmp.xp,
-        department: matchedEmp.departmentId === 'dept-1' ? 'Operations' : 'Logistics'
-      }));
-    }
-
-    setIsLoggedIn(true);
-    setRoleState(assignedRole);
-    setLoading(false);
+  const quickDemoLogin = async (newRole: UserRole) => {
+    await login(ROLE_EMAILS[newRole] ?? ROLE_EMAILS['Employee'], 'Demo@123');
   };
 
   const signup = async (details: any) => {
     setLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 700));
-    setLoading(false);
+    try {
+      await apiAuth.register({
+        email: details.email,
+        password: details.password,
+        firstName: details.firstName ?? details.name?.split(' ')[0] ?? 'New',
+        lastName: details.lastName ?? details.name?.split(' ').slice(1).join(' ') ?? 'User',
+        departmentId: details.departmentId,
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   const forgotPassword = async (email: string) => {
     setLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 700));
-    setLoading(false);
+    try {
+      await apiAuth.forgotPassword(email);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const resetPassword = async (token: string, password?: string) => {
     setLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 700));
-    setLoading(false);
+    try {
+      await apiAuth.resetPassword(token, password ?? '');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const verifyEmail = async (token: string) => {
     setLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 700));
-    setLoading(false);
+    try {
+      await apiAuth.verifyEmail(token);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const acceptInvite = async (token: string, name: string, password?: string, assignedRole?: UserRole, department?: string) => {
+  const acceptInvite = async (token: string, name: string, password?: string) => {
     setLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 700));
-    
-    const useRole = assignedRole || 'Employee';
-    const newUser: User = {
-      name,
-      email: 'priya@acme.com',
-      avatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150',
-      role: useRole,
-      points: 100,
-      level: 1,
-      xp: 100
-    };
+    try {
+      const [firstName, ...rest] = name.trim().split(' ');
+      const data = await apiAuth.acceptInvite(token, firstName, rest.join(' ') || firstName, password ?? '');
+      await hydrateAfterLogin(data);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    localStorage.setItem('ecosphere_logged_in', 'true');
-    localStorage.setItem('ecosphere_role', useRole);
-    localStorage.setItem('ecosphere_user', JSON.stringify(newUser));
-
-    setIsLoggedIn(true);
-    setRoleState(useRole);
-    setUser(newUser);
-    setLoading(false);
+  const refreshUser = async () => {
+    if (!isLoggedIn) return;
+    try {
+      const [me, summary] = await Promise.all([apiAuth.me(), apiAuth.summary().catch(() => null)]);
+      setUser(toUser(me.user, summary));
+      setEmployeeId(me.user.id);
+    } catch {
+      /* ignore transient errors */
+    }
   };
 
   const logout = () => {
-    localStorage.removeItem('ecosphere_logged_in');
+    void apiAuth.logout();
     localStorage.removeItem('ecosphere_role');
-    localStorage.removeItem('ecosphere_user');
     setIsLoggedIn(false);
     setRoleState('Admin');
     setUser(null);
-  };
-
-  const quickDemoLogin = (newRole: UserRole) => {
-    localStorage.setItem('ecosphere_logged_in', 'true');
-    localStorage.setItem('ecosphere_role', newRole);
-    setIsLoggedIn(true);
-    setRoleState(newRole);
+    setEmployeeId(null);
+    setPermissions([]);
   };
 
   return (
@@ -176,7 +193,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         isLoggedIn,
         user,
+        employeeId,
         role,
+        permissions,
         loading,
         login,
         signup,
@@ -185,7 +204,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         verifyEmail,
         acceptInvite,
         logout,
-        quickDemoLogin
+        quickDemoLogin,
+        refreshUser,
       }}
     >
       {children}

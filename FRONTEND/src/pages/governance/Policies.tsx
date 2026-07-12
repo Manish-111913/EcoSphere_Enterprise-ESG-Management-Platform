@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useApp } from '../../context/AppContext';
-import { socialGovernanceService } from '../../services/socialGovernanceService';
+import { policiesService } from '../../services/policiesService';
+import { Policy } from '../../types';
 import {
   FileText,
   AlertCircle,
@@ -14,27 +14,24 @@ import {
 } from 'lucide-react';
 
 export default function Policies() {
-  const { user } = useApp();
   const navigate = useNavigate();
 
-  const policies = socialGovernanceService.getPolicies();
-  const employees = socialGovernanceService.getEmployees();
-  const acknowledgements = socialGovernanceService.getPolicyAcknowledgements();
+  // Live policy board from the backend.
+  const [policies, setPolicies] = useState<Policy[]>([]);
+  const [ackCount, setAckCount] = useState<Record<string, number>>({});
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
+  const [totalEmployees, setTotalEmployees] = useState(25);
 
-  // Find active employee
-  const currentEmployee = employees.find(emp => emp.email === user?.email) || employees[0];
+  useEffect(() => {
+    policiesService.getBoard().then((b) => {
+      setPolicies(b.policies);
+      setAckCount(b.ackCount);
+      setPendingIds(b.pendingIds);
+      setTotalEmployees(b.totalEmployees);
+    }).catch(() => { /* keep empty */ });
+  }, []);
 
-  const totalEmployees = employees.length || 25;
-
-  // Calculate pending policies for this specific employee
-  const employeeAcks = acknowledgements.filter(ack => ack.employeeId === currentEmployee?.id);
-  
-  const pendingPolicies = policies.filter(policy => {
-    const ack = employeeAcks.find(a => a.policyId === policy.id);
-    return !ack || ack.status !== 'Completed';
-  });
-
-  const pendingCount = pendingPolicies.length;
+  const pendingCount = policies.filter(p => pendingIds.has(p.id)).length;
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6" id="policies-list-page">
@@ -95,13 +92,12 @@ export default function Policies() {
             </thead>
             <tbody className="divide-y divide-neutral-bg text-xs">
               {policies.map((policy) => {
-                // Calculate dynamic acknowledgement progress
-                const policyAcks = acknowledgements.filter(ack => ack.policyId === policy.id && ack.status === 'Completed');
-                const ackPercent = Math.min(100, Math.round((policyAcks.length / totalEmployees) * 100));
+                // Acknowledgement progress from the backend.
+                const signedCount = ackCount[policy.id] ?? 0;
+                const ackPercent = Math.min(100, Math.round((signedCount / totalEmployees) * 100));
 
-                // Check active employee status for this policy
-                const userAck = employeeAcks.find(a => a.policyId === policy.id);
-                const isSigned = userAck?.status === 'Completed';
+                // Current user's status: signed unless the policy is in the pending set.
+                const isSigned = !pendingIds.has(policy.id);
 
                 // Calculate a mock deadline: 30 days after effective date
                 const effDateObj = new Date(policy.effectiveDate);
@@ -154,7 +150,7 @@ export default function Policies() {
                       <div className="space-y-1 w-28">
                         <div className="flex justify-between text-[10px] font-bold text-neutral-text-dark">
                           <span>{ackPercent}% Signed</span>
-                          <span className="text-neutral-text-muted">({policyAcks.length}/{totalEmployees})</span>
+                          <span className="text-neutral-text-muted">({signedCount}/{totalEmployees})</span>
                         </div>
                         <div className="w-full h-1.5 bg-neutral-bg rounded-full overflow-hidden">
                           <div

@@ -56,6 +56,16 @@ export class UsersService {
     return paginate(rows.map(toUserView), total, p);
   }
 
+  /** Lightweight directory for owner/assignee dropdowns (any authenticated user). */
+  async directory(): Promise<{ id: string; name: string; email: string; departmentId: string }[]> {
+    const rows = await this.prisma.user.findMany({
+      where: { deletedAt: null, isActive: true },
+      select: { id: true, firstName: true, lastName: true, email: true, departmentId: true },
+      orderBy: { firstName: 'asc' },
+    });
+    return rows.map((u) => ({ id: u.id, name: `${u.firstName} ${u.lastName}`, email: u.email, departmentId: u.departmentId }));
+  }
+
   async get(id: string): Promise<UserView> {
     const user = await this.prisma.user.findFirst({
       where: { id, deletedAt: null },

@@ -34,6 +34,12 @@ export class UsersController {
     return this.users.list(parsePagination(query), scope);
   }
 
+  // Directory for dropdowns — any authenticated user; minimal fields only.
+  @Get('directory')
+  directory() {
+    return this.users.directory();
+  }
+
   @RequirePermission('users:create')
   @Post()
   create(@Body() dto: CreateUserDto, @CurrentUser() actor: AuthenticatedUser) {

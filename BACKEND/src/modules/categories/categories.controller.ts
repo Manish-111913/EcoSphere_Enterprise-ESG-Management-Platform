@@ -25,7 +25,7 @@ import {
 export class CategoriesController {
   constructor(private readonly categories: CategoriesService) {}
 
-  @RequirePermission('categories:read')
+  // Reference data for form dropdowns / name resolution — any authenticated user.
   @Get()
   list(@Query('type') type?: CategoryType) {
     return this.categories.list(type);

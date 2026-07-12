@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
-import { gamificationService } from '../../services/gamificationService';
-import { Reward } from '../../types';
+import { useAuth } from '../../context/auth';
+import { rewardsService } from '../../services/rewardsService';
+import { Reward, RewardRedemption } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Gift,
@@ -19,28 +20,37 @@ import {
 
 export default function Rewards() {
   const { user, refreshUser } = useApp();
-
-  // Load Data
-  const rewards = useMemo(() => gamificationService.getRewards(), []);
-  const employees = useMemo(() => gamificationService.getEmployees(), []);
-
-  // Find active employee profile
-  const currentEmployee = useMemo(() => {
-    if (!user) return null;
-    return employees.find(e => e.email === user.email) || null;
-  }, [user, employees]);
+  const { employeeId } = useAuth();
 
   // States
-  const [rewardsList, setRewardsList] = useState<Reward[]>(rewards);
+  const [rewardsList, setRewardsList] = useState<Reward[]>([]);
+  const [redemptionList, setRedemptionList] = useState<RewardRedemption[]>([]);
   const [selectedReward, setSelectedReward] = useState<Reward | null>(null);
   const [redemptionError, setRedemptionError] = useState('');
   const [redemptionSuccess, setRedemptionSuccess] = useState(false);
   const [activeTab, setActiveTab] = useState<'catalog' | 'history'>('catalog');
 
+  // Active employee profile derived from the authenticated user.
+  const currentEmployee = useMemo(() => {
+    if (!user || !employeeId) return null;
+    return { id: employeeId, points: user.points, email: user.email };
+  }, [user, employeeId]);
+
+  const refreshList = useCallback(async () => {
+    const [rewards, reds] = await Promise.all([
+      rewardsService.getRewards(),
+      employeeId ? rewardsService.getRedemptions(employeeId) : Promise.resolve([]),
+    ]);
+    setRewardsList(rewards);
+    setRedemptionList(reds);
+  }, [employeeId]);
+
+  useEffect(() => {
+    void refreshList();
+  }, [refreshList]);
+
   const redemptions = useMemo(() => {
-    if (!currentEmployee) return [];
-    return gamificationService.getRewardRedemptions()
-      .filter(r => r.employeeId === currentEmployee.id)
+    return redemptionList
       .map(r => {
         const item = rewardsList.find(rew => rew.id === r.rewardId);
         return {
@@ -50,11 +60,7 @@ export default function Rewards() {
         };
       })
       .sort((a, b) => b.timestamp.localeCompare(a.timestamp));
-  }, [rewardsList, currentEmployee]);
-
-  const refreshList = () => {
-    setRewardsList(gamificationService.getRewards());
-  };
+  }, [rewardsList, redemptionList]);
 
   const handleOpenRedeem = (reward: Reward) => {
     setRedemptionError('');
@@ -73,15 +79,15 @@ export default function Rewards() {
     setSelectedReward(reward);
   };
 
-  const handleConfirmRedeem = () => {
+  const handleConfirmRedeem = async () => {
     if (!selectedReward || !currentEmployee) return;
     setRedemptionError('');
 
-    const res = gamificationService.redeemReward(selectedReward.id, currentEmployee.id);
+    const res = await rewardsService.redeem(selectedReward.id);
     if (res.success) {
       setRedemptionSuccess(true);
-      refreshList();
-      refreshUser();
+      await refreshList();
+      refreshUser(); // re-fetch live balance from the backend
     } else {
       setRedemptionError(res.error || 'Redemption failed.');
     }

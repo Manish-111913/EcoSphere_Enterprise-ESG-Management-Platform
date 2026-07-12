@@ -1,7 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
-import { gamificationService } from '../../services/gamificationService';
-import { Employee } from '../../types';
+import { leaderboardService, RankedRow } from '../../services/leaderboardService';
 import { motion } from 'motion/react';
 import {
   Trophy,
@@ -21,84 +20,52 @@ import {
 export default function Leaderboard() {
   const { user } = useApp();
 
-  // Load active lists
-  const employees = useMemo(() => gamificationService.getEmployees(), []);
-  
   // States
   const [viewMode, setViewMode] = useState<'individual' | 'department'>('individual');
   const [period, setPeriod] = useState<'week' | 'month' | 'all'>('all');
+  const [individualRaw, setIndividualRaw] = useState<RankedRow[]>([]);
+  const [departmentRaw, setDepartmentRaw] = useState<RankedRow[]>([]);
 
-  // Load department lookups to compute department points
-  const departmentsLookup: Record<string, { name: string; memberCount: number; points: number }> = {
-    'dept-1': { name: 'Human Resources', memberCount: 0, points: 0 },
-    'dept-2': { name: 'Engineering', memberCount: 0, points: 0 },
-    'dept-3': { name: 'Procurement', memberCount: 0, points: 0 },
-    'dept-4': { name: 'Legal', memberCount: 0, points: 0 },
-    'dept-5': { name: 'Operations', memberCount: 0, points: 0 }
-  };
+  const avatar = (name: string) => `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'User')}&background=0D9488&color=fff`;
 
-  // Compute individual ranks with mock variations based on timeframes
-  const individualRankings = useMemo(() => {
-    return employees.map((emp) => {
-      // Simulate periodic variations
-      let pts = emp.points;
-      if (period === 'week') {
-        pts = Math.round(emp.points * 0.15) + (emp.id === 'emp-1' ? 80 : emp.id === 'emp-3' ? 50 : 20);
-      } else if (period === 'month') {
-        pts = Math.round(emp.points * 0.45) + (emp.id === 'emp-2' ? 120 : emp.id === 'emp-4' ? 90 : 40);
-      }
-
-      // Department helper
-      const deptName = departmentsLookup[emp.departmentId]?.name || 'Operations';
-
-      return {
-        id: emp.id,
-        name: emp.name,
-        email: emp.email,
-        avatar: emp.avatar,
-        points: pts,
-        level: emp.level,
-        department: deptName,
-        isCurrentUser: user?.email === emp.email
-      };
-    }).sort((a, b) => b.points - a.points);
-  }, [employees, period, user]);
-
-  // Compute Department Rank aggregates
-  const departmentRankings = useMemo(() => {
-    // Reset aggregates
-    const depts = {
-      'dept-1': { id: 'dept-1', name: 'Human Resources', memberCount: 0, points: 0, avatar: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=120' },
-      'dept-2': { id: 'dept-2', name: 'Engineering', memberCount: 0, points: 0, avatar: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?w=120' },
-      'dept-3': { id: 'dept-3', name: 'Procurement', memberCount: 0, points: 0, avatar: 'https://images.unsplash.com/photo-1454165804606-c3d57bc86b40?w=120' },
-      'dept-4': { id: 'dept-4', name: 'Legal', memberCount: 0, points: 0, avatar: 'https://images.unsplash.com/photo-1450133064473-71024230f91b?w=120' },
-      'dept-5': { id: 'dept-5', name: 'Operations', memberCount: 0, points: 0, avatar: 'https://images.unsplash.com/photo-1541888946425-d81bb19240f5?w=120' }
-    };
-
-    employees.forEach(emp => {
-      const d = (depts as any)[emp.departmentId];
-      if (d) {
-        d.memberCount += 1;
-        // Periodic variation aggregates
-        let pts = emp.points;
-        if (period === 'week') {
-          pts = Math.round(emp.points * 0.15) + (emp.id === 'emp-1' ? 80 : 20);
-        } else if (period === 'month') {
-          pts = Math.round(emp.points * 0.45) + (emp.id === 'emp-2' ? 120 : 40);
-        }
-        d.points += pts;
-      }
+  // Ledger-computed rankings from the backend, refreshed by period.
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      leaderboardService.get('individual', period).catch(() => []),
+      leaderboardService.get('department', period).catch(() => []),
+    ]).then(([ind, dep]) => {
+      if (!active) return;
+      setIndividualRaw(ind);
+      setDepartmentRaw(dep);
     });
+    return () => { active = false; };
+  }, [period]);
 
-    return Object.values(depts)
-      .filter(d => d.memberCount > 0)
-      .map(d => ({
-        ...d,
-        avgPoints: Math.round(d.points / d.memberCount),
-        isCurrentUserDept: user ? employees.find(e => e.email === user.email)?.departmentId === d.id : false
-      }))
-      .sort((a, b) => b.points - a.points);
-  }, [employees, period, user]);
+  const individualRankings = useMemo(() => {
+    return individualRaw.map((r) => ({
+      id: r.id,
+      name: r.name,
+      email: '',
+      avatar: avatar(r.name),
+      points: r.total,
+      level: 1 + Math.floor(r.total / 300),
+      department: r.department ?? '—',
+      isCurrentUser: user?.name === r.name,
+    }));
+  }, [individualRaw, user]);
+
+  const departmentRankings = useMemo(() => {
+    return departmentRaw.map((r) => ({
+      id: r.id,
+      name: r.name,
+      memberCount: 0,
+      points: r.total,
+      avatar: avatar(r.name),
+      avgPoints: r.total,
+      isCurrentUserDept: false,
+    }));
+  }, [departmentRaw]);
 
   // Extract Podium top 3
   const topThree = useMemo(() => {

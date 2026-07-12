@@ -1,10 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { useSettings } from '../../context/SettingsContext';
-import { gamificationService } from '../../services/gamificationService';
-import { useCategories } from '../../mocks/categoryStore';
-import { Challenge, UserRole } from '../../types';
+import { challengesService } from '../../services/challengesService';
+import { Challenge } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Flame,
@@ -34,12 +33,11 @@ export default function Challenges() {
   const [pillarFilter, setPillarFilter] = useState<string>('all');
   const [difficultyFilter, setDifficultyFilter] = useState<string>('all');
   
-  // Live challenge categories from the shared master store
-  const allCategories = useCategories();
-  const challengeCategories = useMemo(
-    () => allCategories.filter(c => c.type === 'challenge' && c.status === 'Active'),
-    [allCategories]
-  );
+  // Live challenge categories from the backend master.
+  const [challengeCategories, setChallengeCategories] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    challengesService.getCategories().then(setChallengeCategories).catch(() => setChallengeCategories([]));
+  }, []);
 
   // Create Challenge Drawer State
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -57,10 +55,19 @@ export default function Challenges() {
   });
   const [formError, setFormError] = useState('');
 
-  // Load Data
-  const challenges = useMemo(() => gamificationService.getChallenges(), [isDrawerOpen]);
-  const participations = useMemo(() => gamificationService.getParticipations(), []);
-  const employees = useMemo(() => gamificationService.getEmployees(), []);
+  // Load challenges from the backend.
+  const [challenges, setChallenges] = useState<Challenge[]>([]);
+  const loadChallenges = useCallback(async () => {
+    try {
+      setChallenges(await challengesService.getChallenges());
+    } catch {
+      setChallenges([]);
+    }
+  }, []);
+  useEffect(() => { void loadChallenges(); }, [loadChallenges]);
+  // Participant avatars need a per-challenge fetch (see Challenge Details); omitted in the grid.
+  const participations: { challengeId: string; employeeId: string }[] = [];
+  const employees: { id: string; email: string; avatar: string; name: string }[] = [];
 
   // Filter Challenges
   const filteredChallenges = useMemo(() => {
@@ -140,7 +147,7 @@ export default function Challenges() {
     }).filter(Boolean) as { avatar: string; name: string }[];
   };
 
-  const handleCreateChallenge = (e: React.FormEvent) => {
+  const handleCreateChallenge = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
 
@@ -155,7 +162,7 @@ export default function Challenges() {
     }
 
     try {
-      gamificationService.createChallenge({
+      await challengesService.createChallenge({
         title: formData.title,
         description: formData.description,
         category: formData.category || undefined,
@@ -167,6 +174,7 @@ export default function Challenges() {
         endDate: formData.endDate,
         difficulty: formData.difficulty
       });
+      await loadChallenges();
       setIsDrawerOpen(false);
       setFormData({
         title: '',

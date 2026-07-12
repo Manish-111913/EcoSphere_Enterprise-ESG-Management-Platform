@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/auth';
 import { useSettings } from '../../context/SettingsContext';
-import { socialGovernanceService } from '../../services/socialGovernanceService';
-import { useCategories } from '../../mocks/categoryStore';
+import { csrActivitiesService, EnrichedActivity, CsrPart } from '../../services/csrActivitiesService';
+import { reference } from '../../services/referenceData';
 import { useToast } from '../../components/ui-kit/Toast';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -24,6 +25,7 @@ import { CsrActivity, Employee } from '../../types';
 
 export default function CsrActivities() {
   const { user } = useApp();
+  const { employeeId } = useAuth();
   const { addToast } = useToast();
   const { settings } = useSettings();
   
@@ -35,20 +37,25 @@ export default function CsrActivities() {
   const [proofPreviewUrl, setProofPreviewUrl] = useState<string>('');
   const [isSubmittingProof, setIsSubmittingProof] = useState(false);
 
-  // Force re-renders for live state updates
-  const [, setTick] = useState(0);
-  const forceUpdate = () => setTick(t => t + 1);
+  // Live CSR board from the backend.
+  const [activities, setActivities] = useState<EnrichedActivity[]>([]);
+  const [participations, setParticipations] = useState<CsrPart[]>([]);
+  const [employees, setEmployees] = useState<{ id: string; name: string; avatar: string }[]>([]);
 
-  const activities = socialGovernanceService.getActivities();
-  const employees = socialGovernanceService.getEmployees();
-  const participations = socialGovernanceService.getParticipations();
+  const reload = useCallback(async () => {
+    const [board, dir] = await Promise.all([
+      csrActivitiesService.getBoard().catch(() => ({ activities: [] as EnrichedActivity[], participations: [] as CsrPart[] })),
+      reference.users().catch(() => []),
+    ]);
+    setActivities(board.activities);
+    setParticipations(board.participations);
+    setEmployees(dir.map((u) => ({ id: u.id, name: u.name, avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=0D9488&color=fff` })));
+  }, []);
+  useEffect(() => { void reload(); }, [reload]);
+  const forceUpdate = () => { void reload(); };
 
-  // Find the active logged-in employee
-  const currentEmployee = employees.find(emp => emp.email === user?.email) || employees[0];
-
-  // CSR categories come live from the shared category master store
-  const csrCategories = useCategories().filter(c => c.type === 'csr' && c.status === 'Active');
-  const categories = ['All', ...csrCategories.map(c => c.name)];
+  const currentEmployee = employeeId ? { id: employeeId, email: user?.email } : null;
+  const categories = ['All', ...Array.from(new Set(activities.map((a) => a.category)))];
 
   // Filtering
   const filteredActivities = activities.filter(act => {
@@ -58,31 +65,21 @@ export default function CsrActivities() {
     return matchesSearch && matchesCategory;
   });
 
-  const handleJoin = (activityId: string, e: React.MouseEvent) => {
+  const handleJoin = async (activityId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     if (!currentEmployee) {
-      addToast({
-        title: 'Error',
-        description: 'No active employee session found.',
-        type: 'danger'
-      });
+      addToast({ title: 'Error', description: 'No active employee session found.', type: 'danger' });
       return;
     }
-
-    const activity = socialGovernanceService.getActivityById(activityId);
+    const activity = activities.find(a => a.id === activityId);
     if (!activity) return;
-
-    if (activity.joinedCount >= activity.capacity) {
-      return; // disabled in UI
+    try {
+      await csrActivitiesService.join(activityId);
+      addToast({ title: 'Joined Activity!', description: `You have successfully registered for ${activity.title}.`, type: 'success' });
+      await reload();
+    } catch (err) {
+      addToast({ title: 'Could not join', description: (err as Error).message, type: 'danger' });
     }
-
-    socialGovernanceService.joinActivity(activityId, currentEmployee.id);
-    addToast({
-      title: 'Joined Activity!',
-      description: `You have successfully registered for ${activity.title}.`,
-      type: 'success'
-    });
-    forceUpdate();
   };
 
   // Drag and Drop handlers
@@ -116,26 +113,25 @@ export default function CsrActivities() {
     }
   };
 
-  const submitProof = () => {
-    if (!selectedActivity || !currentEmployee) return;
-
+  const submitProof = async () => {
+    if (!selectedActivity || !currentEmployee || !proofFile) return;
+    const part = participations.find(p => p.activityId === selectedActivity.id && p.employeeId === currentEmployee.id);
+    if (!part) {
+      addToast({ title: 'Join first', description: 'Please join the activity before submitting proof.', type: 'danger' });
+      return;
+    }
     setIsSubmittingProof(true);
-    // Simulate API call
-    setTimeout(() => {
-      // Create or update participation with the submitted proof
-      socialGovernanceService.joinActivity(selectedActivity.id, currentEmployee.id, proofPreviewUrl || 'https://images.unsplash.com/photo-1618477388954-7852f32655ec?w=400');
-      
-      addToast({
-        title: 'Proof Submitted!',
-        description: 'Your proof has been uploaded and is pending CSR Manager review.',
-        type: 'success'
-      });
-      
-      setIsSubmittingProof(false);
+    try {
+      await csrActivitiesService.submitProof(part.id, proofFile);
+      addToast({ title: 'Proof Submitted!', description: 'Your proof has been uploaded and is pending CSR Manager review.', type: 'success' });
       setProofFile(null);
       setProofPreviewUrl('');
-      forceUpdate();
-    }, 1000);
+      await reload();
+    } catch (err) {
+      addToast({ title: 'Submission failed', description: (err as Error).message, type: 'danger' });
+    } finally {
+      setIsSubmittingProof(false);
+    }
   };
 
   const getParticipationStatusForSelected = () => {
@@ -153,7 +149,7 @@ export default function CsrActivities() {
     return actParts.map(p => {
       const emp = employees.find(e => e.id === p.employeeId);
       return emp ? { ...emp, status: p.status } : null;
-    }).filter(Boolean) as (Employee & { status: string })[];
+    }).filter(Boolean) as { id: string; name: string; avatar: string; status: string }[];
   };
 
   return (
@@ -175,8 +171,8 @@ export default function CsrActivities() {
           <div>
             <div className="text-[10px] uppercase tracking-wider text-neutral-text-muted font-bold">Your Balance</div>
             <div className="text-sm font-bold text-neutral-text-dark flex items-center gap-1">
-              <span>{currentEmployee?.points || 0} Points</span>
-              <span className="text-xs text-neutral-text-muted font-normal">({currentEmployee?.xp || 0} XP)</span>
+              <span>{user?.points || 0} Points</span>
+              <span className="text-xs text-neutral-text-muted font-normal">({user?.xp || 0} XP)</span>
             </div>
           </div>
         </div>
@@ -471,7 +467,7 @@ export default function CsrActivities() {
                             />
                             <div>
                               <div className="font-bold text-neutral-text-dark">{emp.name}</div>
-                              <div className="text-[10px] text-neutral-text-muted">Level {emp.level} · {emp.role}</div>
+                              <div className="text-[10px] text-neutral-text-muted">Participant</div>
                             </div>
                           </div>
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${

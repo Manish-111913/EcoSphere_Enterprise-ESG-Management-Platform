@@ -23,7 +23,7 @@ import { CreateDepartmentDto, UpdateDepartmentDto } from './dto/department.dto';
 export class DepartmentsController {
   constructor(private readonly departments: DepartmentsService) {}
 
-  @RequirePermission('departments:read')
+  // Reference data for form dropdowns — readable by any authenticated user.
   @Get()
   list(
     @Query() query: PageQuery,
@@ -32,7 +32,6 @@ export class DepartmentsController {
     return this.departments.list(parsePagination(query), { isActive });
   }
 
-  @RequirePermission('departments:read')
   @Get('tree')
   tree() {
     return this.departments.tree();

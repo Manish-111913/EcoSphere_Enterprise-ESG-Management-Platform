@@ -26,7 +26,7 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isLoggedIn, role, user, logout: logoutUser, quickDemoLogin, loading: authLoading } = useAuth();
+  const { isLoggedIn, role, user, logout: logoutUser, quickDemoLogin, loading: authLoading, refreshUser: refreshAuthUser } = useAuth();
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([]);
@@ -47,7 +47,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const refreshUser = () => {
-    // No-op because AuthContext handles active user dynamically based on role
+    // Re-fetch the live profile (xp balance / level) from the backend.
+    void refreshAuthUser();
   };
 
   const setRole = (newRole: UserRole) => {

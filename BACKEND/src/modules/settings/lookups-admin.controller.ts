@@ -26,7 +26,8 @@ import {
 export class LookupsAdminController {
   constructor(private readonly lookups: LookupsAdminService) {}
 
-  @RequirePermission('lookups:read')
+  // Reference data — readable by any authenticated user (forms need units,
+  // scopes, severities, statuses, etc.). Writes remain permission-gated.
   @Get('lookups')
   listTypes() {
     return this.lookups.listTypes();
@@ -69,7 +70,6 @@ export class LookupsAdminController {
     return this.lookups.deleteValue(id, actor.id);
   }
 
-  @RequirePermission('lookups:read')
   @Get('lookup-transitions')
   listTransitions(@Query('lookupTypeId') lookupTypeId?: string) {
     return this.lookups.listTransitions(lookupTypeId);

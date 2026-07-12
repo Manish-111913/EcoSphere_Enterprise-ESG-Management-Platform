@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useApp } from '../../context/AppContext';
 import { useSettings } from '../../context/SettingsContext';
-import { socialGovernanceService } from '../../services/socialGovernanceService';
+import { csrService, CsrReviewItem } from '../../services/csrService';
+import { ApiError } from '../../services/apiClient';
 import { useToast } from '../../components/ui-kit/Toast';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -30,60 +31,60 @@ export default function Participation() {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
 
-  // Force re-renders for live updates
-  const [, setTick] = useState(0);
-  const forceUpdate = () => setTick(t => t + 1);
+  // Live review queue from the backend (submitted CSR the caller may decide).
+  const [participations, setParticipations] = useState<CsrReviewItem[]>([]);
 
-  const participations = socialGovernanceService.getParticipations();
-  const employees = socialGovernanceService.getEmployees();
-  const activities = socialGovernanceService.getActivities();
+  const loadQueue = useCallback(async () => {
+    try {
+      setParticipations(await csrService.getReviewQueue());
+    } catch (err) {
+      console.error('Failed to load CSR review queue', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadQueue();
+  }, [loadQueue]);
 
   const isReviewer = role === 'Admin' || role === 'CSR Manager' || role === 'Department Head';
 
-  // Filter participations
-  const filteredParticipations = participations.map(p => {
-    const employee = employees.find(emp => emp.id === p.employeeId);
-    const activity = activities.find(act => act.id === p.activityId);
-    return {
+  const filteredParticipations = participations
+    .map(p => ({
       ...p,
-      employeeName: employee?.name || 'Unknown Employee',
-      employeeAvatar: employee?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-      employeeRole: employee?.role || 'Employee',
-      activityTitle: activity?.title || 'Unknown Activity',
-      points: activity?.points || 0,
-      xp: activity?.xp || 0,
-    };
-  }).filter(p => {
-    const matchesSearch = p.employeeName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          p.activityTitle.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'All' || p.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+      employeeAvatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(p.employeeName)}&background=0D9488&color=fff`,
+      employeeRole: 'Employee',
+      xp: p.points,
+    }))
+    .filter(p => {
+      const matchesSearch = p.employeeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                            p.activityTitle.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesStatus = statusFilter === 'All' || p.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
 
-  const handleApprove = (p: any) => {
-    // Check if settings requires evidence and none is provided
-    const hasProof = !!p.proofUrl;
-    if (settings.evidenceRequired && !hasProof) {
+  // Approval goes through the REAL backend, which enforces the evidence guard.
+  const handleApprove = async (p: any) => {
+    try {
+      await csrService.approve(p.id, remarks);
       addToast({
-        title: 'Action Blocked',
-        description: 'Evidence proof file is required per settings.',
+        title: 'Submission Approved',
+        description: `Approved participation for ${p.employeeName}. Points awarded.`,
+        type: 'success'
+      });
+      setActiveParticipation(null);
+      setRemarks('');
+      await loadQueue();
+    } catch (err) {
+      const e = err as ApiError;
+      addToast({
+        title: e.code === 'EVIDENCE_REQUIRED' ? 'Action Blocked' : 'Approval Failed',
+        description: e.message || 'Could not approve submission.',
         type: 'danger'
       });
-      return;
     }
-
-    socialGovernanceService.approveParticipation(p.id, remarks);
-    addToast({
-      title: 'Submission Approved',
-      description: `Approved participation for ${p.employeeName} - +${p.points} Points awarded!`,
-      type: 'success'
-    });
-    setActiveParticipation(null);
-    setRemarks('');
-    forceUpdate();
   };
 
-  const handleReject = (p: any) => {
+  const handleReject = async (p: any) => {
     if (!remarks.trim()) {
       addToast({
         title: 'Error',
@@ -92,16 +93,20 @@ export default function Participation() {
       });
       return;
     }
-
-    socialGovernanceService.rejectParticipation(p.id, remarks);
-    addToast({
-      title: 'Submission Rejected',
-      description: `Rejected participation for ${p.employeeName}. Remarks saved.`,
-      type: 'warning'
-    });
-    setActiveParticipation(null);
-    setRemarks('');
-    forceUpdate();
+    try {
+      await csrService.reject(p.id, remarks);
+      addToast({
+        title: 'Submission Rejected',
+        description: `Rejected participation for ${p.employeeName}. Remarks saved.`,
+        type: 'warning'
+      });
+      setActiveParticipation(null);
+      setRemarks('');
+      await loadQueue();
+    } catch (err) {
+      const e = err as ApiError;
+      addToast({ title: 'Rejection Failed', description: e.message, type: 'danger' });
+    }
   };
 
   return (
@@ -453,29 +458,15 @@ export default function Participation() {
                     Reject Submitter
                   </button>
 
-                  {/* Approve button - strict disabled logic */}
-                  {settings.evidenceRequired && !activeParticipation.proofUrl ? (
-                    <div className="relative group/btn">
-                      <button
-                        type="button"
-                        disabled
-                        className="px-4 py-2 bg-neutral-bg text-neutral-text-muted border border-neutral-border text-xs font-bold rounded-lg cursor-not-allowed"
-                      >
-                        Approve Submitter
-                      </button>
-                      <div className="absolute bottom-full right-0 mb-2 w-48 bg-neutral-text-dark text-white text-[10px] rounded p-2 opacity-0 pointer-events-none group-hover/btn:opacity-100 transition-opacity z-10 text-center">
-                        Proof required (per settings)
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleApprove(activeParticipation)}
-                      className="px-4 py-2 bg-primary-teal hover:bg-teal-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs hover:shadow-sm"
-                    >
-                      Approve Submitter
-                    </button>
-                  )}
+                  {/* Approve — the backend enforces the evidence guard (real setting). */}
+                  <button
+                    type="button"
+                    onClick={() => handleApprove(activeParticipation)}
+                    title={settings.evidenceRequired ? 'Evidence rule ON — backend blocks proof-less approvals' : 'Approve submission'}
+                    className="px-4 py-2 bg-primary-teal hover:bg-teal-700 text-white text-xs font-bold rounded-lg transition-colors shadow-xs hover:shadow-sm"
+                  >
+                    Approve Submitter
+                  </button>
                 </div>
               </div>
             </motion.div>

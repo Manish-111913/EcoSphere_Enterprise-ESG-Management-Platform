@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
-import { socialGovernanceService } from '../../services/socialGovernanceService';
+import { governanceService, DirectoryEmployee } from '../../services/governanceService';
 import { useToast } from '../../components/ui-kit/Toast';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -25,7 +25,7 @@ import {
   Trash2,
   FileText
 } from 'lucide-react';
-import { ComplianceIssue, Employee } from '../../types';
+import { ComplianceIssue } from '../../types';
 
 export default function ComplianceIssues() {
   const location = useLocation();
@@ -33,13 +33,23 @@ export default function ComplianceIssues() {
   const { role } = useApp();
   const { addToast } = useToast();
 
-  const issues = socialGovernanceService.getComplianceIssues();
-  const employees = socialGovernanceService.getEmployees();
-  const audits = socialGovernanceService.getAudits();
+  // Live data from the backend.
+  const [issues, setIssues] = useState<ComplianceIssue[]>([]);
+  const [employees, setEmployees] = useState<DirectoryEmployee[]>([]);
+  const [audits, setAudits] = useState<{ id: string; title: string }[]>([]);
 
-  // Force re-renders for updates
-  const [, setTick] = useState(0);
-  const forceUpdate = () => setTick(t => t + 1);
+  const reload = useCallback(async () => {
+    const [i, e, a] = await Promise.all([
+      governanceService.getComplianceIssues().catch(() => [] as ComplianceIssue[]),
+      governanceService.getEmployees().catch(() => [] as DirectoryEmployee[]),
+      governanceService.getAudits().catch(() => [] as { id: string; title: string }[]),
+    ]);
+    setIssues(i);
+    setEmployees(e);
+    setAudits(a);
+  }, []);
+  useEffect(() => { void reload(); }, [reload]);
+  const forceUpdate = () => { void reload(); };
 
   // Core view toggle: 'table' or 'kanban'
   const [viewMode, setViewMode] = useState<'table' | 'kanban'>('table');
@@ -59,7 +69,7 @@ export default function ComplianceIssues() {
 
   // Autocomplete Owner State (for form)
   const [ownerSearch, setOwnerSearch] = useState('');
-  const [selectedOwner, setSelectedOwner] = useState<Employee | null>(null);
+  const [selectedOwner, setSelectedOwner] = useState<DirectoryEmployee | null>(null);
   const [isOwnerListOpen, setIsOwnerListOpen] = useState(false);
 
   // New Issue Form Fields
@@ -146,28 +156,35 @@ export default function ComplianceIssues() {
     e.preventDefault();
   };
 
-  const handleDrop = (e: React.DragEvent, targetStatus: 'Open' | 'In Progress' | 'Resolved' | 'Closed') => {
+  const handleDrop = async (e: React.DragEvent, targetStatus: 'Open' | 'In Progress' | 'Resolved' | 'Closed') => {
     e.preventDefault();
     const id = e.dataTransfer.getData('text/plain');
-    const issue = socialGovernanceService.getComplianceIssueById(id);
-    
-    if (!issue) return;
+    const issue = issues.find(i => i.id === id);
+    if (!issue || issue.status === targetStatus) return;
 
     if (targetStatus === 'Resolved') {
-      // Trigger dialog first
       setResolutionModalIssue(issue);
       setResolutionNotes('');
     } else {
-      socialGovernanceService.updateComplianceIssue({
-        ...issue,
-        status: targetStatus
-      });
-      addToast({
-        title: 'Status Updated',
-        description: `Compliance issue ${issue.id} moved to ${targetStatus}.`,
-        type: 'success'
-      });
-      forceUpdate();
+      try {
+        await governanceService.transitionIssue(id, targetStatus);
+        addToast({ title: 'Status Updated', description: `Issue moved to ${targetStatus}.`, type: 'success' });
+        await reload();
+      } catch (err) {
+        addToast({ title: 'Transition Blocked', description: (err as Error).message, type: 'danger' });
+      }
+    }
+  };
+
+  const resolveIssue = async (issue: any, notes: string) => {
+    try {
+      await governanceService.transitionIssue(issue.id, 'Resolved', notes);
+      addToast({ title: 'Issue Resolved', description: `Issue resolved successfully.`, type: 'success' });
+      setResolutionModalIssue(null);
+      setResolutionNotes('');
+      await reload();
+    } catch (err) {
+      addToast({ title: 'Resolve Failed', description: (err as Error).message, type: 'danger' });
     }
   };
 
@@ -181,79 +198,53 @@ export default function ComplianceIssues() {
       });
       return;
     }
-
-    socialGovernanceService.updateComplianceIssue({
-      ...resolutionModalIssue,
-      status: 'Resolved',
-      resolutionNotes: resolutionNotes
-    } as any);
-
-    addToast({
-      title: 'Issue Resolved',
-      description: `Issue ${resolutionModalIssue.id} has been resolved successfully.`,
-      type: 'success'
-    });
-
-    setResolutionModalIssue(null);
-    setResolutionNotes('');
-    forceUpdate();
+    void resolveIssue(resolutionModalIssue, resolutionNotes);
   };
 
   // Submit New Issue form
-  const handleCreateIssue = (e: React.FormEvent) => {
+  const handleCreateIssue = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim() || !newDescription.trim() || !selectedOwner || !newDueDate) {
-      addToast({
-        title: 'Form Incomplete',
-        description: 'Please fill in all required fields.',
-        type: 'danger'
-      });
+      addToast({ title: 'Form Incomplete', description: 'Please fill in all required fields.', type: 'danger' });
       return;
     }
-
-    const created = socialGovernanceService.createComplianceIssue({
-      title: newTitle,
-      description: newDescription,
-      severity: newSeverity,
-      ownerId: selectedOwner.id,
-      dueDate: newDueDate,
-      status: 'Open',
-      linkedAuditId: newLinkedAuditId || undefined
-    } as any);
-
-    addToast({
-      title: 'Issue Created',
-      description: `Compliance issue ${created.id} was successfully raised.`,
-      type: 'success'
-    });
-
-    // Reset Form
-    setNewTitle('');
-    setNewDescription('');
-    setNewSeverity('Medium');
-    setSelectedOwner(null);
-    setOwnerSearch('');
-    setNewDueDate('');
-    setNewLinkedAuditId('');
-    setIsNewDrawerOpen(false);
-    forceUpdate();
+    try {
+      await governanceService.createComplianceIssue({
+        title: newTitle,
+        description: newDescription,
+        severity: newSeverity,
+        ownerId: selectedOwner.id,
+        dueDate: newDueDate,
+        linkedAuditId: newLinkedAuditId || undefined,
+      });
+      addToast({ title: 'Issue Created', description: `Compliance issue was successfully raised.`, type: 'success' });
+      setNewTitle('');
+      setNewDescription('');
+      setNewSeverity('Medium');
+      setSelectedOwner(null);
+      setOwnerSearch('');
+      setNewDueDate('');
+      setNewLinkedAuditId('');
+      setIsNewDrawerOpen(false);
+      await reload();
+    } catch (err) {
+      addToast({ title: 'Could not raise issue', description: (err as Error).message, type: 'danger' });
+    }
   };
 
-  const handleDeleteIssue = (id: string, e: React.MouseEvent) => {
+  // Compliance issues are audit records — the backend has no hard delete.
+  const handleDeleteIssue = (_id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    socialGovernanceService.deleteComplianceIssue(id);
     addToast({
-      title: 'Issue Deleted',
-      description: `Compliance issue ${id} was removed.`,
+      title: 'Not Supported',
+      description: 'Compliance issues are permanent audit records; close them instead of deleting.',
       type: 'warning'
     });
-    forceUpdate();
   };
 
   // Autocomplete suggestions
   const suggestedEmployees = employees.filter(emp =>
-    emp.name.toLowerCase().includes(ownerSearch.toLowerCase()) || 
-    emp.role.toLowerCase().includes(ownerSearch.toLowerCase())
+    emp.name.toLowerCase().includes(ownerSearch.toLowerCase())
   );
 
   return (
@@ -690,22 +681,7 @@ export default function ComplianceIssues() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    // Update issue status with resolution notes
-                    socialGovernanceService.updateComplianceIssue({
-                      ...resolutionModalIssue,
-                      status: 'Resolved',
-                      resolutionNotes: resolutionNotes
-                    } as any);
-                    addToast({
-                      title: 'Issue Resolved',
-                      description: `Issue ${resolutionModalIssue.id} is resolved.`,
-                      type: 'success'
-                    });
-                    setResolutionModalIssue(null);
-                    setResolutionNotes('');
-                    forceUpdate();
-                  }}
+                  onClick={() => submitResolution()}
                   disabled={!resolutionNotes.trim()}
                   className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-neutral-bg disabled:text-neutral-text-muted disabled:border-neutral-border text-white text-xs font-bold rounded-lg transition-colors"
                 >
