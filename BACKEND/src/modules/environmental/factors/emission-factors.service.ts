@@ -37,13 +37,12 @@ export class EmissionFactorsService {
     return this.getOrThrow(id);
   }
 
-  /** Resolve the factor active for (category, unit) on a given date (spec §A6.4). */
-  async resolveActive(
+  /** Resolve the factor active for (category, unit) on a given date, or null. */
+  async resolveActiveOrNull(
     category: string,
     unitId: string,
-    dateStr?: string,
-  ): Promise<EmissionFactor> {
-    const date = dateStr ? new Date(dateStr) : new Date();
+    date: Date,
+  ): Promise<EmissionFactor | null> {
     const candidates = await this.prisma.emissionFactor.findMany({
       where: {
         category,
@@ -55,13 +54,24 @@ export class EmissionFactorsService {
       },
       orderBy: { effectiveFrom: 'desc' },
     });
-    if (candidates.length === 0) {
+    return candidates[0] ?? null;
+  }
+
+  /** Resolve the factor active for (category, unit) on a given date (spec §A6.4). */
+  async resolveActive(
+    category: string,
+    unitId: string,
+    dateStr?: string,
+  ): Promise<EmissionFactor> {
+    const date = dateStr ? new Date(dateStr) : new Date();
+    const factor = await this.resolveActiveOrNull(category, unitId, date);
+    if (!factor) {
       throw new NotFoundException({
         code: 'NOT_FOUND',
         message: 'No active emission factor for the given category/unit/date',
       });
     }
-    return candidates[0];
+    return factor;
   }
 
   async create(

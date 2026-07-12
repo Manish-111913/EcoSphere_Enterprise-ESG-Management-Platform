@@ -73,10 +73,10 @@ export class DepartmentsService {
 
   async scores(id: string) {
     await this.getOrThrow(id);
-    // Full recompute lands in B6; here we return stored department_scores.
+    // Stored department_scores (populated by the scoring engine), freshest first.
     return this.prisma.departmentScore.findMany({
       where: { departmentId: id },
-      orderBy: { periodStart: 'desc' },
+      orderBy: { computedAt: 'desc' },
     });
   }
 

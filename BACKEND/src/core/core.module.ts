@@ -6,6 +6,8 @@ import { PrismaModule } from './prisma/prisma.module';
 import { LookupModule } from './lookups/lookup.module';
 import { SecurityModule } from './security/security.module';
 import { AuditModule } from './audit/audit.module';
+import { StorageModule } from './storage/storage.module';
+import { MailModule } from './mail/mail.module';
 import { CorrelationIdMiddleware } from './middleware/correlation-id.middleware';
 import { LoggingInterceptor } from './interceptors/logging.interceptor';
 import { AuditLogInterceptor } from './interceptors/audit-log.interceptor';
@@ -23,6 +25,8 @@ import { AuditLogInterceptor } from './interceptors/audit-log.interceptor';
     LookupModule,
     SecurityModule,
     AuditModule,
+    StorageModule,
+    MailModule,
   ],
   providers: [
     { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
@@ -35,6 +39,8 @@ import { AuditLogInterceptor } from './interceptors/audit-log.interceptor';
     LookupModule,
     SecurityModule,
     AuditModule,
+    StorageModule,
+    MailModule,
   ],
 })
 export class CoreModule implements NestModule {

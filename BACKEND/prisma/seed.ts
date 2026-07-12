@@ -1297,11 +1297,11 @@ async function seedScores(): Promise<void> {
 async function seedNotifications(): Promise<void> {
   // Notification templates + rules (event bus → rules → dispatch, spec §A11).
   const templates: { code: string; title: string; body: string }[] = [
-    { code: 'CSR_APPROVED', title: 'CSR participation approved', body: 'Hi {{employee_name}}, your participation in {{activity_title}} was approved (+{{points}} pts).' },
-    { code: 'CHALLENGE_APPROVED', title: 'Challenge approved', body: 'Hi {{employee_name}}, your challenge {{challenge_title}} was approved (+{{xp}} XP).' },
+    { code: 'CSR_DECIDED', title: 'CSR participation {{decision}}', body: 'Hi {{employee_name}}, your participation in {{activity_title}} was {{decision}}.' },
+    { code: 'CHALLENGE_DECIDED', title: 'Challenge {{decision}}', body: 'Hi {{employee_name}}, your challenge {{challenge_title}} was {{decision}}.' },
     { code: 'BADGE_AWARDED', title: 'New badge unlocked', body: 'Congratulations {{employee_name}}, you earned the {{badge_name}} badge!' },
-    { code: 'ISSUE_ASSIGNED', title: 'Compliance issue assigned', body: 'You have been assigned issue {{issue_title}} (due {{due_date}}).' },
-    { code: 'ISSUE_OVERDUE', title: 'Compliance issue overdue', body: 'Issue {{issue_title}} is overdue. Please act.' },
+    { code: 'ISSUE_RAISED', title: 'Compliance issue assigned', body: 'Hi {{employee_name}}, issue {{issue_title}} is assigned to you (due {{due_date}}).' },
+    { code: 'ISSUE_OVERDUE', title: 'Compliance issue overdue', body: 'Issue {{issue_title}} is overdue (was due {{due_date}}). Please act.' },
     { code: 'POLICY_REMINDER', title: 'Policy acknowledgement due', body: 'Please acknowledge {{policy_title}} before {{deadline}}.' },
     { code: 'REWARD_REDEEMED', title: 'Reward redeemed', body: 'You redeemed {{reward_name}} for {{points}} points.' },
   ];
@@ -1327,11 +1327,12 @@ async function seedNotifications(): Promise<void> {
     roleId?: string;
     cron?: string;
   }[] = [
-    { event: 'csr.approved', template: 'CSR_APPROVED', channels: ['IN_APP', 'EMAIL'], strategy: RecipientStrategy.OWNER },
-    { event: 'challenge.approved', template: 'CHALLENGE_APPROVED', channels: ['IN_APP', 'EMAIL'], strategy: RecipientStrategy.OWNER },
+    { event: 'csr.decided', template: 'CSR_DECIDED', channels: ['IN_APP', 'EMAIL'], strategy: RecipientStrategy.OWNER },
+    { event: 'challenge.decided', template: 'CHALLENGE_DECIDED', channels: ['IN_APP', 'EMAIL'], strategy: RecipientStrategy.OWNER },
     { event: 'badge.awarded', template: 'BADGE_AWARDED', channels: ['IN_APP'], strategy: RecipientStrategy.OWNER },
-    { event: 'issue.raised', template: 'ISSUE_ASSIGNED', channels: ['IN_APP', 'EMAIL'], strategy: RecipientStrategy.OWNER },
-    { event: 'issue.overdue', template: 'ISSUE_OVERDUE', channels: ['IN_APP', 'EMAIL'], strategy: RecipientStrategy.ROLE, roleId: complianceRole, cron: '0 2 * * *' },
+    { event: 'compliance_issue.raised', template: 'ISSUE_RAISED', channels: ['IN_APP', 'EMAIL'], strategy: RecipientStrategy.OWNER },
+    { event: 'issue.overdue', template: 'ISSUE_OVERDUE', channels: ['IN_APP', 'EMAIL'], strategy: RecipientStrategy.OWNER },
+    { event: 'issue.overdue', template: 'ISSUE_OVERDUE', channels: ['IN_APP'], strategy: RecipientStrategy.ROLE, roleId: complianceRole, cron: '0 2 * * *' },
     { event: 'policy.reminder', template: 'POLICY_REMINDER', channels: ['IN_APP', 'EMAIL'], strategy: RecipientStrategy.ALL_AFFECTED, cron: '0 9 * * *' },
     { event: 'reward.redeemed', template: 'REWARD_REDEEMED', channels: ['IN_APP'], strategy: RecipientStrategy.ACTOR },
   ];
