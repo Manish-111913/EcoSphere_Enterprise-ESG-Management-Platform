@@ -251,7 +251,7 @@ const LOOKUPS: LookupSpec[] = [
 async function seedLookups(): Promise<void> {
   for (const spec of LOOKUPS) {
     const type = await prisma.lookupType.create({
-      data: { code: spec.type, description: spec.description },
+      data: { code: spec.type, description: spec.description, isSystem: true },
     });
     for (let i = 0; i < spec.values.length; i++) {
       const v = spec.values[i];

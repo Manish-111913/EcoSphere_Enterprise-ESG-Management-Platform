@@ -5,15 +5,13 @@ import {
   Logger,
   NestInterceptor,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { AuditAction } from '@prisma/client';
 import { Request } from 'express';
 import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { PrismaService } from '../prisma/prisma.service';
-
-interface AuthedRequest extends Request {
-  user?: { id?: string };
-}
+import { SKIP_AUDIT_KEY } from '../../common/decorators/skip-audit.decorator';
 
 /**
  * Writes an audit_logs row for every successful mutation (spec §A4/§A10:
@@ -34,14 +32,21 @@ export class AuditLogInterceptor implements NestInterceptor {
     DELETE: AuditAction.DELETE,
   };
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reflector: Reflector,
+  ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
-    const req = context.switchToHttp().getRequest<AuthedRequest>();
+    const req = context.switchToHttp().getRequest<Request>();
     const action = AuditLogInterceptor.VERB_ACTION[req.method];
 
-    if (!action) {
-      return next.handle(); // reads are not audited
+    const skip = this.reflector.getAllAndOverride<boolean>(SKIP_AUDIT_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (!action || skip) {
+      return next.handle(); // reads and self-audited/secret routes are skipped
     }
 
     return next.handle().pipe(
@@ -52,7 +57,7 @@ export class AuditLogInterceptor implements NestInterceptor {
   }
 
   private async record(
-    req: AuthedRequest,
+    req: Request,
     action: AuditAction,
     data: unknown,
   ): Promise<void> {
