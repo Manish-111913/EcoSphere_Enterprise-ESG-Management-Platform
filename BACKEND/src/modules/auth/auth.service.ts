@@ -35,6 +35,12 @@ export interface LoginResult {
   permissions: string[];
 }
 
+export interface SignupDepartmentOption {
+  id: string;
+  name: string;
+  code: string;
+}
+
 interface RequestMeta {
   ip?: string | null;
   userAgent?: string | null;
@@ -208,6 +214,15 @@ export class AuthService {
       message: 'Registered; please verify your email',
       ...(this.devReturnTokens() ? { verificationToken } : {}),
     };
+  }
+
+  async signupOptions(): Promise<{ departments: SignupDepartmentOption[] }> {
+    const departments = await this.prisma.department.findMany({
+      where: { isActive: true, deletedAt: null },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, code: true },
+    });
+    return { departments };
   }
 
   async verifyEmail(dto: VerifyEmailDto): Promise<{ message: string }> {

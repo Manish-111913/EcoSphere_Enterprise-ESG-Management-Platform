@@ -10,6 +10,7 @@ import { useToast } from '../components/ui-kit/Toast';
 import FormDrawer from '../components/ui-kit/FormDrawer';
 import ConfirmDialog from '../components/ui-kit/ConfirmDialog';
 import StatusBadge from '../components/ui-kit/StatusBadge';
+import SelectField from '../components/ui/select-field';
 import { gamificationService } from '../services/gamificationService';
 import { environmentalService } from '../services/environmentalService';
 import { mockDepartments } from '../mocks/db';
@@ -607,20 +608,20 @@ export default function Departments() {
 
           <div className="space-y-1.5">
             <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Parent Department</label>
-            <select
+            <SelectField
               value={formParentId}
-              onChange={e => setFormParentId(e.target.value)}
-              className="w-full text-xs px-3.5 py-2.5 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal font-semibold text-neutral-text-dark"
-            >
-              <option value="none">No Parent (Top Level)</option>
-              {departments
-                .filter(d => d.id !== editingDeptId)
-                .map(d => (
-                  <option key={d.id} value={d.id}>
-                    {d.name} ({d.code})
-                  </option>
-                ))}
-            </select>
+              onValueChange={setFormParentId}
+              options={[
+                { value: 'none', label: 'No Parent (Top Level)' },
+                ...departments
+                  .filter((d) => d.id !== editingDeptId)
+                  .map((d) => ({
+                    value: d.id,
+                    label: `${d.name} (${d.code})`,
+                  })),
+              ]}
+              triggerClassName="w-full h-10 text-xs px-3.5 py-2.5 font-semibold text-neutral-text-dark"
+            />
             {errors.parent && (
               <span className="text-[10px] font-bold text-red-600 flex items-center gap-1 mt-1">
                 <AlertTriangle className="h-3 w-3 shrink-0" />

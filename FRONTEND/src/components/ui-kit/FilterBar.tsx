@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
 import { Search, X, Calendar, User as UserIcon, Check, ChevronDown } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
 
 interface FilterBarProps {
   searchQuery: string;
@@ -89,16 +96,22 @@ export default function FilterBar({
           {/* 2. Select Dropdown */}
           {onSelectChange && selectOptions.length > 0 && (
             <div className="min-w-[150px] flex-grow md:flex-grow-0">
-              <select
-                value={selectedValue || ''}
-                onChange={e => onSelectChange(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs border border-neutral-border rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal focus:border-primary-teal bg-white font-semibold text-neutral-text-dark"
+              <Select
+                value={selectedValue || '__all__'}
+                onValueChange={(value) => onSelectChange(value === '__all__' ? '' : value)}
               >
-                <option value="">{selectPlaceholder}</option>
-                {selectOptions.map(opt => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
-                ))}
-              </select>
+                <SelectTrigger className="h-9 text-xs font-semibold">
+                  <SelectValue placeholder={selectPlaceholder} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">{selectPlaceholder}</SelectItem>
+                  {selectOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           )}
 

@@ -58,6 +58,11 @@ export const challengesService = {
     return Promise.all(rows.map(mapChallenge));
   },
 
+  async getChallengeById(id: string): Promise<Challenge> {
+    const row = await api.get<BackendChallenge>(`/challenges/${id}`);
+    return mapChallenge(row);
+  },
+
   async getCategories(): Promise<{ id: string; name: string }[]> {
     return challengeCategories();
   },

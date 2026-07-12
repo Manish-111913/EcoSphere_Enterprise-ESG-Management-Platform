@@ -36,6 +36,9 @@ const ROLE_EMAILS: Record<UserRole, string> = {
   'Auditor': 'auditor@ecosphere.demo',
 };
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function pickRole(roles: string[]): UserRole {
   return (roles.find((r) => KNOWN_ROLES.includes(r as UserRole)) as UserRole) || 'Employee';
 }
@@ -117,12 +120,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signup = async (details: any) => {
     setLoading(true);
     try {
+      const departmentId =
+        typeof details.departmentId === 'string' && UUID_RE.test(details.departmentId)
+          ? details.departmentId
+          : undefined;
+
       await apiAuth.register({
         email: details.email,
         password: details.password,
         firstName: details.firstName ?? details.name?.split(' ')[0] ?? 'New',
         lastName: details.lastName ?? details.name?.split(' ').slice(1).join(' ') ?? 'User',
-        departmentId: details.departmentId,
+        departmentId,
       });
     } finally {
       setLoading(false);

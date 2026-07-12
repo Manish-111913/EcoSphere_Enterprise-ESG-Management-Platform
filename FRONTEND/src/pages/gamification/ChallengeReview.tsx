@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { gamificationService, EnhancedParticipation } from '../../services/gamificationService';
+import { challengesService } from '../../services/challengesService';
 import { Employee } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -25,8 +26,8 @@ export default function ChallengeReview() {
   const navigate = useNavigate();
   const { user, role, refreshUser } = useApp();
 
-  // Load Data
-  const challenge = useMemo(() => gamificationService.getChallengeById(id || ''), [id]);
+  const [challenge, setChallenge] = useState<any | null>(null);
+  const [challengeLoading, setChallengeLoading] = useState(true);
   const employees = useMemo(() => gamificationService.getEmployees(), []);
   
   const [participations, setParticipations] = useState<EnhancedParticipation[]>([]);
@@ -47,6 +48,60 @@ export default function ChallengeReview() {
   useEffect(() => {
     loadSubmissions();
   }, [id]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadChallenge() {
+      if (!id) {
+        if (active) {
+          setChallenge(null);
+          setChallengeLoading(false);
+        }
+        return;
+      }
+
+      const localChallenge = gamificationService.getChallengeById(id);
+      if (localChallenge) {
+        if (active) {
+          setChallenge(localChallenge);
+          setChallengeLoading(false);
+        }
+        return;
+      }
+
+      setChallengeLoading(true);
+      try {
+        const liveChallenge = await challengesService.getChallengeById(id);
+        if (active) {
+          setChallenge(liveChallenge);
+        }
+      } catch {
+        if (active) {
+          setChallenge(null);
+        }
+      } finally {
+        if (active) {
+          setChallengeLoading(false);
+        }
+      }
+    }
+
+    void loadChallenge();
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  if (challengeLoading) {
+    return (
+      <div className="max-w-xl mx-auto py-16 px-4 text-center space-y-4">
+        <AlertCircle className="h-12 w-12 text-primary-teal mx-auto animate-pulse" />
+        <h2 className="text-xl font-bold text-neutral-text-dark font-sans">Loading Challenge</h2>
+        <p className="text-sm text-neutral-text-muted">Fetching the latest challenge details...</p>
+      </div>
+    );
+  }
 
   // Keyboard Shortcuts Handler
   useEffect(() => {

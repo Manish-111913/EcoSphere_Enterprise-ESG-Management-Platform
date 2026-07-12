@@ -1,7 +1,16 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { useToast } from './ui-kit/Toast';
+import { Button } from './ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import {
   Bell,
   Search,
@@ -13,8 +22,7 @@ import {
   Palette,
   Check,
   Shield,
-  HelpCircle,
-  Menu
+  Menu,
 } from 'lucide-react';
 import { UserRole } from '../types';
 
@@ -28,33 +36,12 @@ export default function Topbar() {
     unreadNotificationsCount,
     markNotificationAsRead,
     markAllNotificationsAsRead,
-    logoutUser
+    logoutUser,
   } = useApp();
 
   const { toast } = useToast();
-
   const location = useLocation();
   const navigate = useNavigate();
-
-  const [notifOpen, setNotifOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
-  const [roleOpen, setRoleOpen] = useState(false);
-
-  const notifRef = useRef<HTMLDivElement>(null);
-  const profileRef = useRef<HTMLDivElement>(null);
-  const roleRef = useRef<HTMLDivElement>(null);
-
-  // Close dropdowns on outside clicks
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      const target = event.target as HTMLElement;
-      if (notifRef.current && !notifRef.current.contains(target)) setNotifOpen(false);
-      if (profileRef.current && !profileRef.current.contains(target)) setProfileOpen(false);
-      if (roleRef.current && !roleRef.current.contains(target)) setRoleOpen(false);
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   const rolesList: UserRole[] = [
     'Admin',
@@ -63,16 +50,15 @@ export default function Topbar() {
     'Compliance Officer',
     'Department Head',
     'Employee',
-    'Auditor'
+    'Auditor',
   ];
 
-  // Helper to generate dynamic breadcrumbs
   const getBreadcrumbs = () => {
     const path = location.pathname;
     if (path === '/dashboard') {
       return [
         { label: 'EcoSphere', active: false },
-        { label: 'Dashboard', active: true }
+        { label: 'Dashboard', active: true },
       ];
     }
 
@@ -82,11 +68,11 @@ export default function Topbar() {
     segments.forEach((seg, i) => {
       const label = seg
         .split('-')
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
         .join(' ');
       breadcrumbs.push({
         label,
-        active: i === segments.length - 1
+        active: i === segments.length - 1,
       });
     });
 
@@ -95,7 +81,6 @@ export default function Topbar() {
 
   const breadcrumbs = getBreadcrumbs();
 
-  // Role-aware Quick Action Info
   const getQuickActionInfo = () => {
     switch (role) {
       case 'Admin':
@@ -125,7 +110,6 @@ export default function Topbar() {
 
   return (
     <div id="app-topbar" className="h-16 border-b border-neutral-border bg-white flex items-center justify-between px-4 sm:px-6 z-20 sticky top-0">
-      {/* Left: Breadcrumbs & Hamburger */}
       <div className="flex items-center gap-3">
         <button
           onClick={() => {
@@ -162,9 +146,7 @@ export default function Topbar() {
         </div>
       </div>
 
-      {/* Right: Search, Role Switcher, Quick Action, Notifications, Profile */}
       <div className="flex items-center gap-4">
-        {/* Global Search Visuals */}
         <div className="relative max-w-xs hidden md:block">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-neutral-text-muted">
             <Search className="h-4 w-4" />
@@ -181,48 +163,26 @@ export default function Topbar() {
           </div>
         </div>
 
-        {/* Role Switcher Dropdown */}
-        <div className="relative" ref={roleRef}>
-          <button
-            onClick={() => setRoleOpen(!roleOpen)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-button border border-neutral-border hover:bg-neutral-bg transition-colors text-xs font-semibold text-neutral-text-dark"
-            id="role-switcher-btn"
-          >
-            <Shield className="h-4 w-4 text-primary-teal shrink-0" />
-            <span className="hidden sm:inline">Role: {role}</span>
-            <ChevronDown className="h-3.5 w-3.5 text-neutral-text-muted shrink-0" />
-          </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-2 rounded-button text-xs font-semibold">
+              <Shield className="h-4 w-4 text-primary-teal shrink-0" />
+              <span className="hidden sm:inline">Role: {role}</span>
+              <ChevronDown className="h-3.5 w-3.5 text-neutral-text-muted shrink-0" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>Switch Active Role</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {rolesList.map((r) => (
+              <DropdownMenuItem key={r} onClick={() => setRole(r)} className="justify-between">
+                <span>{r}</span>
+                {role === r && <Check className="h-4 w-4 text-primary-teal" />}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-          {roleOpen && (
-            <div className="absolute right-0 mt-2 w-56 bg-white border border-neutral-border rounded-xl shadow-lg py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-              <div className="px-3 py-1.5 border-b border-neutral-border mb-1">
-                <span className="text-[10px] uppercase font-bold tracking-wider text-neutral-text-muted block">
-                  Switch Active Role
-                </span>
-                <p className="text-[10px] text-neutral-text-muted mt-0.5">
-                  Changes layout grammar and widget scopes instantly
-                </p>
-              </div>
-              <div className="max-h-60 overflow-y-auto">
-                {rolesList.map(r => (
-                  <button
-                    key={r}
-                    onClick={() => {
-                      setRole(r);
-                      setRoleOpen(false);
-                    }}
-                    className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-neutral-bg text-neutral-text-dark flex items-center justify-between transition-colors"
-                  >
-                    <span>{r}</span>
-                    {role === r && <Check className="h-4 w-4 text-primary-teal" />}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Quick Action Button */}
         <button
           onClick={handleQuickActionClick}
           className="bg-primary-teal hover:bg-primary-teal-hover text-white p-2 rounded-button shadow-sm flex items-center justify-center transition-all group relative"
@@ -236,103 +196,98 @@ export default function Topbar() {
           </div>
         </button>
 
-        {/* Notifications Dropdown */}
-        <div className="relative" ref={notifRef}>
-          <button
-            onClick={() => setNotifOpen(!notifOpen)}
-            className="p-2 rounded-button border border-neutral-border hover:bg-neutral-bg transition-colors relative text-neutral-text-muted hover:text-neutral-text-dark"
-            title="Notifications"
-            id="notifications-bell"
-          >
-            <Bell className="h-4 w-4" />
-            {unreadNotificationsCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-semantic-danger rounded-full border border-white animate-pulse" />
-            )}
-          </button>
-
-          {notifOpen && (
-            <div className="absolute right-0 mt-2 w-80 bg-white border border-neutral-border rounded-xl shadow-lg py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-              <div className="px-4 py-2 border-b border-neutral-border flex items-center justify-between mb-1">
-                <span className="text-xs font-bold text-neutral-text-dark">Notifications</span>
-                {unreadNotificationsCount > 0 && (
-                  <button
-                    onClick={markAllNotificationsAsRead}
-                    className="text-[10px] text-primary-teal hover:underline font-semibold"
-                  >
-                    Mark all read
-                  </button>
-                )}
-              </div>
-              <div className="max-h-72 overflow-y-auto divide-y divide-neutral-border">
-                {notifications.length === 0 ? (
-                  <div className="p-4 text-center text-xs text-neutral-text-muted">
-                    No new notifications
-                  </div>
-                ) : (
-                  notifications.slice(0, 5).map(notif => (
-                    <div
-                      key={notif.id}
-                      onClick={() => markNotificationAsRead(notif.id)}
-                      className={`p-3 hover:bg-neutral-bg transition-colors cursor-pointer text-left ${
-                        !notif.read ? 'bg-primary-teal/[0.02]' : ''
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-xs font-semibold text-neutral-text-dark leading-tight">
-                          {notif.title}
-                        </span>
-                        {!notif.read && (
-                          <span className="w-1.5 h-1.5 bg-primary-teal rounded-full shrink-0 mt-1" />
-                        )}
-                      </div>
-                      <p className="text-[11px] text-neutral-text-muted mt-1 leading-snug">
-                        {notif.description}
-                      </p>
-                      <span className="text-[9px] text-neutral-text-muted mt-1 block">
-                        {notif.time}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
-              <div className="px-3 pt-2 border-t border-neutral-border text-center">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="outline"
+              size="icon"
+              className="relative rounded-button border-neutral-border text-neutral-text-muted hover:text-neutral-text-dark"
+              title="Notifications"
+              id="notifications-bell"
+            >
+              <Bell className="h-4 w-4" />
+              {unreadNotificationsCount > 0 && (
+                <span className="absolute top-2 right-2 w-2 h-2 bg-semantic-danger rounded-full border border-white animate-pulse" />
+              )}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-80 p-0 overflow-hidden">
+            <div className="px-4 py-2 border-b border-neutral-border flex items-center justify-between">
+              <span className="text-xs font-bold text-neutral-text-dark">Notifications</span>
+              {unreadNotificationsCount > 0 && (
                 <button
-                  onClick={() => {
-                    setNotifOpen(false);
-                    navigate('/notifications');
-                  }}
-                  className="text-xs text-primary-teal hover:underline font-semibold w-full"
+                  onClick={markAllNotificationsAsRead}
+                  className="text-[10px] text-primary-teal hover:underline font-semibold"
                 >
-                  View all notifications
+                  Mark all read
                 </button>
-              </div>
+              )}
             </div>
-          )}
-        </div>
+            <div className="max-h-72 overflow-y-auto divide-y divide-neutral-border">
+              {notifications.length === 0 ? (
+                <div className="p-4 text-center text-xs text-neutral-text-muted">
+                  No new notifications
+                </div>
+              ) : (
+                notifications.slice(0, 5).map((notif) => (
+                  <button
+                    key={notif.id}
+                    onClick={() => markNotificationAsRead(notif.id)}
+                    className={`w-full p-3 hover:bg-neutral-bg transition-colors cursor-pointer text-left ${
+                      !notif.read ? 'bg-primary-teal/[0.02]' : ''
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span className="text-xs font-semibold text-neutral-text-dark leading-tight">
+                        {notif.title}
+                      </span>
+                      {!notif.read && (
+                        <span className="w-1.5 h-1.5 bg-primary-teal rounded-full shrink-0 mt-1" />
+                      )}
+                    </div>
+                    <p className="text-[11px] text-neutral-text-muted mt-1 leading-snug">
+                      {notif.description}
+                    </p>
+                    <span className="text-[9px] text-neutral-text-muted mt-1 block">
+                      {notif.time}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+            <div className="px-3 py-2 border-t border-neutral-border text-center">
+              <button
+                onClick={() => navigate('/notifications')}
+                className="text-xs text-primary-teal hover:underline font-semibold w-full"
+              >
+                View all notifications
+              </button>
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-        {/* Profile Avatar & Menu */}
-        <div className="relative" ref={profileRef}>
-          <button
-            onClick={() => setProfileOpen(!profileOpen)}
-            className="flex items-center gap-2 focus:outline-none"
-            id="profile-dropdown-btn"
-          >
-            {loadingUser || !user ? (
-              <div className="w-8 h-8 rounded-full bg-neutral-border animate-pulse" />
-            ) : (
-              <img
-                src={user.avatar}
-                alt={user.name}
-                referrerPolicy="no-referrer"
-                className="w-8 h-8 rounded-full border border-neutral-border object-cover bg-neutral-bg"
-              />
-            )}
-            <ChevronDown className="h-3.5 w-3.5 text-neutral-text-muted shrink-0 hidden sm:inline" />
-          </button>
-
-          {profileOpen && user && (
-            <div className="absolute right-0 mt-2 w-56 bg-white border border-neutral-border rounded-xl shadow-lg py-1.5 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-              <div className="px-3 py-2 border-b border-neutral-border mb-1 text-left">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="flex items-center gap-2 focus:outline-none"
+              id="profile-dropdown-btn"
+            >
+              {loadingUser || !user ? (
+                <div className="w-8 h-8 rounded-full bg-neutral-border animate-pulse" />
+              ) : (
+                <img
+                  src={user.avatar}
+                  alt={user.name}
+                  referrerPolicy="no-referrer"
+                  className="w-8 h-8 rounded-full border border-neutral-border object-cover bg-neutral-bg"
+                />
+              )}
+              <ChevronDown className="h-3.5 w-3.5 text-neutral-text-muted shrink-0 hidden sm:inline" />
+            </button>
+          </DropdownMenuTrigger>
+          {user && (
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuLabel className="normal-case px-3 py-2">
                 <span className="text-xs font-bold text-neutral-text-dark block leading-none truncate">
                   {user.name}
                 </span>
@@ -347,56 +302,39 @@ export default function Topbar() {
                     {user.points} pts
                   </span>
                 </div>
-              </div>
-              <div className="text-left">
-                <button
-                  onClick={() => {
-                    setProfileOpen(false);
-                    navigate('/profile');
-                  }}
-                  className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-neutral-bg text-neutral-text-dark flex items-center gap-2 transition-colors"
-                >
-                  <UserIcon className="h-3.5 w-3.5 text-neutral-text-muted" />
-                  My Profile
-                </button>
-                <button
-                  onClick={() => {
-                    setProfileOpen(false);
-                    navigate('/settings');
-                  }}
-                  className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-neutral-bg text-neutral-text-dark flex items-center gap-2 transition-colors"
-                >
-                  <SettingsIcon className="h-3.5 w-3.5 text-neutral-text-muted" />
-                  Admin Settings
-                </button>
-                <button
-                  onClick={() => {
-                    setProfileOpen(false);
-                    toast('System Theme', 'info', 'System theme locked to professional slate-light per design guidelines.');
-                  }}
-                  className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-neutral-bg text-neutral-text-dark flex items-center gap-2 transition-colors"
-                >
-                  <Palette className="h-3.5 w-3.5 text-neutral-text-muted" />
-                  System Theme
-                </button>
-              </div>
-              <div className="border-t border-neutral-border mt-1.5 pt-1.5 text-left">
-                <button
-                  onClick={() => {
-                    setProfileOpen(false);
-                    logoutUser();
-                    toast('Signed out', 'success', 'You have been successfully logged out of EcoSphere.');
-                    navigate('/login');
-                  }}
-                  className="w-full text-left px-3 py-2 text-xs font-medium hover:bg-red-50 text-red-600 flex items-center gap-2 transition-colors"
-                >
-                  <LogOut className="h-3.5 w-3.5 text-red-500" />
-                  Sign Out
-                </button>
-              </div>
-            </div>
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate('/profile')}>
+                <UserIcon className="h-3.5 w-3.5 text-neutral-text-muted" />
+                My Profile
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate('/settings')}>
+                <SettingsIcon className="h-3.5 w-3.5 text-neutral-text-muted" />
+                Admin Settings
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  toast('System Theme', 'info', 'System theme locked to professional slate-light per design guidelines.');
+                }}
+              >
+                <Palette className="h-3.5 w-3.5 text-neutral-text-muted" />
+                System Theme
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-red-600 focus:bg-red-50 focus:text-red-600"
+                onClick={() => {
+                  logoutUser();
+                  toast('Signed out', 'success', 'You have been successfully logged out of EcoSphere.');
+                  navigate('/login');
+                }}
+              >
+                <LogOut className="h-3.5 w-3.5 text-red-500" />
+                Sign Out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
           )}
-        </div>
+        </DropdownMenu>
       </div>
     </div>
   );

@@ -2,6 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useSettings } from '../context/SettingsContext';
 import { useToast } from '../components/ui-kit/Toast';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
+import {
   Settings as SettingsIcon, Sliders, Palette, ShieldAlert, Key, ClipboardList,
   Upload, Save, Plus, Trash2, CheckCircle, Search, ToggleLeft, ToggleRight, AlertTriangle
 } from 'lucide-react';
@@ -463,15 +470,19 @@ export default function Settings() {
             <div className="border-t border-neutral-border/50 pt-4 grid grid-cols-1 sm:grid-cols-3 gap-2 flex-wrap items-end">
               <div className="space-y-1">
                 <label className="text-[10px] uppercase font-bold text-neutral-text-muted block">Dict Type</label>
-                <select
+                <Select
                   value={newLookupType}
-                  onChange={(e) => setNewLookupType(e.target.value as any)}
-                  className="w-full border border-neutral-border rounded-lg px-2 py-1 text-xs bg-white text-neutral-text-dark"
+                  onValueChange={(value: 'severity' | 'difficulty' | 'status') => setNewLookupType(value)}
                 >
-                  <option value="severity">Severity Rating</option>
-                  <option value="difficulty">Difficulty Badge</option>
-                  <option value="status">Process Status</option>
-                </select>
+                  <SelectTrigger className="h-8 rounded-lg px-2 text-xs shadow-none">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="severity">Severity Rating</SelectItem>
+                    <SelectItem value="difficulty">Difficulty Badge</SelectItem>
+                    <SelectItem value="status">Process Status</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1">
                 <label className="text-[10px] uppercase font-bold text-neutral-text-muted block">Lookup Label</label>
@@ -681,23 +692,39 @@ export default function Settings() {
             </div>
             <div className="space-y-1">
               <label className="text-[10px] uppercase font-bold text-neutral-text-muted">Required Approver</label>
-              <select
+              <Select
                 value={newRuleApprover}
-                onChange={(e) => setNewRuleApprover(e.target.value)}
-                className="w-full border border-neutral-border rounded-lg px-2 py-1 text-xs bg-white text-neutral-text-dark"
+                onValueChange={setNewRuleApprover}
               >
-                {rolesList.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
+                <SelectTrigger className="h-8 rounded-lg px-2 text-xs shadow-none">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {rolesList.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {r}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1">
               <label className="text-[10px] uppercase font-bold text-neutral-text-muted">Action notification</label>
-              <select
+              <Select
                 value={newRuleNotify}
-                onChange={(e) => setNewRuleNotify(e.target.value)}
-                className="w-full border border-neutral-border rounded-lg px-2 py-1 text-xs bg-white text-neutral-text-dark"
+                onValueChange={setNewRuleNotify}
               >
-                {rolesList.map(r => <option key={r} value={r}>{r}</option>)}
-              </select>
+                <SelectTrigger className="h-8 rounded-lg px-2 text-xs shadow-none">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {rolesList.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {r}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <button
               onClick={handleAddRule}

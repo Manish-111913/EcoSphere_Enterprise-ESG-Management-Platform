@@ -7,6 +7,14 @@ interface BackendPolicy {
   effectiveDate: string | null; acknowledgementDeadline: string | null; statusId: string | null;
 }
 
+export interface PolicyAcknowledgementView {
+  id: string;
+  policyId: string;
+  policyVersion: number;
+  employeeId: string;
+  acknowledgedAt: string;
+}
+
 const dateOnly = (d: string | null) => (d ? d.slice(0, 10) : '');
 
 function mapPolicy(p: BackendPolicy): Policy {
@@ -54,5 +62,19 @@ export const policiesService = {
 
   acknowledge(policyId: string): Promise<unknown> {
     return api.post(`/policies/${policyId}/acknowledge`);
+  },
+
+  async getPolicyById(policyId: string): Promise<Policy> {
+    const row = await api.get<BackendPolicy>(`/policies/${policyId}`);
+    return mapPolicy(row);
+  },
+
+  async getPendingPolicies(): Promise<Policy[]> {
+    const rows = await api.get<BackendPolicy[]>('/policies/pending-acknowledgement');
+    return rows.map(mapPolicy);
+  },
+
+  getAcknowledgements(policyId: string): Promise<PolicyAcknowledgementView[]> {
+    return api.get<PolicyAcknowledgementView[]>(`/policies/${policyId}/acknowledgements`);
   },
 };

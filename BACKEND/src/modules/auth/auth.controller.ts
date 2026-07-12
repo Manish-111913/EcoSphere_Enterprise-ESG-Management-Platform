@@ -70,6 +70,12 @@ export class AuthController {
   }
 
   @Public()
+  @Get('signup-options')
+  signupOptions() {
+    return this.auth.signupOptions();
+  }
+
+  @Public()
   @Post('register')
   register(
     @Body() dto: RegisterDto,

@@ -3,11 +3,19 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/auth';
 import { useToast } from '../components/ui-kit/Toast';
 import AuthLayout from '../components/AuthLayout';
+import { ApiError } from '../services/apiClient';
+import { apiAuth, SignupDepartmentOption } from '../services/apiAuth';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
 import { 
   User, Building, Shield, ChevronRight, ChevronLeft, 
-  Mail, Lock, Eye, EyeOff, Loader2, Check, X, AlertTriangle, ArrowRight 
+  Mail, Lock, Eye, EyeOff, Loader2, Check, X, ArrowRight 
 } from 'lucide-react';
-import { mockDepartments } from '../mocks/db';
 
 const INDUSTRIES = [
   "Technology & Software",
@@ -36,6 +44,9 @@ export default function Signup() {
   const [industry, setIndustry] = useState('');
   const [departmentId, setDepartmentId] = useState('');
   const [agreeTerms, setAgreeTerms] = useState(false);
+  const [departments, setDepartments] = useState<SignupDepartmentOption[]>([]);
+  const [departmentsLoading, setDepartmentsLoading] = useState(true);
+  const [departmentsError, setDepartmentsError] = useState('');
 
   // Visibility toggles
   const [showPassword, setShowPassword] = useState(false);
@@ -45,7 +56,6 @@ export default function Signup() {
   const [firstNameError, setFirstNameError] = useState('');
   const [lastNameError, setLastNameError] = useState('');
   const [emailError, setEmailError] = useState('');
-  const [emailWarning, setEmailWarning] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [confirmPasswordError, setConfirmPasswordError] = useState('');
   
@@ -55,6 +65,32 @@ export default function Signup() {
 
   useEffect(() => {
     document.title = "Register | EcoSphere";
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadSignupOptions() {
+      setDepartmentsLoading(true);
+      setDepartmentsError('');
+      try {
+        const data = await apiAuth.signupOptions();
+        if (!active) return;
+        setDepartments(data.departments);
+      } catch (err) {
+        if (!active) return;
+        const message = err instanceof ApiError ? err.message : 'Failed to load departments';
+        setDepartments([]);
+        setDepartmentsError(message);
+      } finally {
+        if (active) setDepartmentsLoading(false);
+      }
+    }
+
+    void loadSignupOptions();
+    return () => {
+      active = false;
+    };
   }, []);
 
   // Password Strength live checklist
@@ -68,11 +104,9 @@ export default function Signup() {
 
   const isPasswordStrong = Object.values(passCriteria).every(Boolean);
 
-  // Email format + soft-warning for personal emails
   const validateEmail = (val: string) => {
-    setEmailWarning('');
     if (!val) {
-      setEmailError('Work email is strictly required');
+      setEmailError('Email address is required');
       return false;
     }
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -81,13 +115,6 @@ export default function Signup() {
       return false;
     }
     setEmailError('');
-
-    // Soft warning check for common personal domains (non-blocking)
-    const personalDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'aol.com', 'mail.com'];
-    const domain = val.split('@')[1]?.toLowerCase();
-    if (domain && personalDomains.includes(domain)) {
-      setEmailWarning('Use your work email for proper organizational linking (personal email detected)');
-    }
     return true;
   };
 
@@ -172,6 +199,7 @@ export default function Signup() {
         firstName,
         lastName,
         email,
+        password,
         orgName,
         industry,
         departmentId
@@ -179,7 +207,8 @@ export default function Signup() {
       setIsSuccess(true);
       toast('Onboarding Initiated', 'success', `A verification link has been compiled for ${email}.`);
     } catch (err) {
-      toast('Registration Failed', 'error', 'Failed to create your organization account.');
+      const message = err instanceof ApiError ? err.message : 'Failed to create your account.';
+      toast('Registration Failed', 'error', message);
     }
   };
 
@@ -231,7 +260,7 @@ export default function Signup() {
             Register your workspace
           </h1>
           <p className="text-xs text-neutral-text-muted mt-1 font-medium">
-            Join thousands of enterprises driving net-zero targets.
+            Join teams driving measurable sustainability progress.
           </p>
         </div>
 
@@ -296,18 +325,18 @@ export default function Signup() {
             {/* Email */}
             <div className="space-y-1.5">
               <label className="text-[11px] font-bold text-neutral-text-dark uppercase tracking-wider" htmlFor="email-signup">
-                Work Email Address
+                Email Address
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-2.5 w-4 h-4 text-neutral-text-muted" />
                 <input
                   id="email-signup"
                   type="email"
-                  placeholder="dent@magrathea.com"
+                  placeholder="you@example.com"
                   value={email}
                   onChange={e => {
                     setEmail(e.target.value);
-                    if (emailError || emailWarning) validateEmail(e.target.value);
+                    if (emailError) validateEmail(e.target.value);
                   }}
                   onBlur={() => validateEmail(email)}
                   className={`w-full pl-9 pr-3 py-2 bg-white border ${
@@ -316,12 +345,6 @@ export default function Signup() {
                 />
               </div>
               {emailError && <p className="text-[10px] text-red-600 font-semibold">{emailError}</p>}
-              {emailWarning && (
-                <div className="flex gap-1 bg-amber-50 border border-amber-100 rounded-lg p-2 text-[10px] text-amber-800 font-medium">
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-                  <span>{emailWarning}</span>
-                </div>
-              )}
             </div>
 
             {/* Password */}
@@ -464,19 +487,27 @@ export default function Signup() {
               <label className="text-[11px] font-bold text-neutral-text-dark uppercase tracking-wider" htmlFor="industry-select">
                 Industry Sector
               </label>
-              <select
-                id="industry-select"
-                value={industry}
-                onChange={e => setIndustry(e.target.value)}
-                className={`w-full px-3 py-2 bg-white border ${
-                  industryError ? 'border-red-400 focus:ring-red-100' : 'border-neutral-border focus:ring-emerald-100'
-                } rounded-xl text-sm focus:outline-none focus:ring-4 transition duration-200`}
+              <Select
+                value={industry || '__placeholder__'}
+                onValueChange={(value) => setIndustry(value === '__placeholder__' ? '' : value)}
               >
-                <option value="">-- Choose Industry Sector --</option>
-                {INDUSTRIES.map(ind => (
-                  <option key={ind} value={ind}>{ind}</option>
-                ))}
-              </select>
+                <SelectTrigger
+                  id="industry-select"
+                  className={`h-10 text-sm shadow-none ${
+                    industryError ? 'border-red-400 focus:ring-red-100' : 'focus:ring-emerald-100'
+                  }`}
+                >
+                  <SelectValue placeholder="-- Choose Industry Sector --" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__placeholder__">-- Choose Industry Sector --</SelectItem>
+                  {INDUSTRIES.map((ind) => (
+                    <SelectItem key={ind} value={ind}>
+                      {ind}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               {industryError && <p className="text-[10px] text-red-600 font-semibold">{industryError}</p>}
             </div>
 
@@ -485,29 +516,38 @@ export default function Signup() {
               <label className="text-[11px] font-bold text-neutral-text-dark uppercase tracking-wider" htmlFor="dept-select">
                 Assigned Department
               </label>
-              <select
-                id="dept-select"
-                value={departmentId}
-                onChange={e => setDepartmentId(e.target.value)}
-                className={`w-full px-3 py-2 bg-white border ${
-                  deptError ? 'border-red-400 focus:ring-red-100' : 'border-neutral-border focus:ring-emerald-100'
-                } rounded-xl text-sm focus:outline-none focus:ring-4 transition duration-200`}
+              <Select
+                value={departmentId || '__placeholder__'}
+                onValueChange={(value) => setDepartmentId(value === '__placeholder__' ? '' : value)}
               >
-                <option value="">-- Choose Your Department --</option>
-                {mockDepartments.map(d => (
-                  <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
-                ))}
-              </select>
+                <SelectTrigger
+                  id="dept-select"
+                  className={`h-10 text-sm shadow-none ${
+                    deptError ? 'border-red-400 focus:ring-red-100' : 'focus:ring-emerald-100'
+                  }`}
+                >
+                  <SelectValue placeholder="-- Choose Your Department --" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__placeholder__">-- Choose Your Department --</SelectItem>
+                  {departments.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name} ({d.code})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               {deptError && <p className="text-[10px] text-red-600 font-semibold">{deptError}</p>}
+              {departmentsError && <p className="text-[10px] text-red-600 font-semibold">{departmentsError}</p>}
             </div>
 
-            {/* Read-only info banner (enterprise-correct) */}
+            {/* Read-only info banner */}
             <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-xl flex items-start gap-2 text-xs text-emerald-800">
               <Shield className="w-4 h-4 shrink-0 text-emerald-600 mt-0.5" />
               <div>
-                <span className="font-bold">Enterprise Role Assignment</span>
+                <span className="font-bold">Default Role Assignment</span>
                 <p className="text-[11px] mt-0.5 leading-relaxed text-emerald-700">
-                  You'll join as <span className="font-extrabold text-emerald-900">Employee</span>. An administrator can update your role context later inside the settings dashboard.
+                  You'll start as <span className="font-extrabold text-emerald-900">Employee</span>. An administrator can update your role later in the settings dashboard.
                 </p>
               </div>
             </div>
@@ -522,7 +562,7 @@ export default function Signup() {
                 className="h-4 w-4 mt-0.5 text-emerald-600 focus:ring-emerald-500 border-neutral-border rounded-md transition"
               />
               <label htmlFor="agree-terms" className="text-[11px] text-neutral-text-muted font-medium leading-relaxed cursor-pointer select-none">
-                I authorize registration and consent strictly to EcoSphere's <span className="text-emerald-600 hover:underline cursor-pointer">Enterprise Terms of Service</span> and <span className="text-emerald-600 hover:underline cursor-pointer">Data Compliance Policy</span>.
+                I agree to EcoSphere's <span className="text-emerald-600 hover:underline cursor-pointer">Terms of Service</span> and <span className="text-emerald-600 hover:underline cursor-pointer">Data Policy</span>.
               </label>
             </div>
 
@@ -539,13 +579,18 @@ export default function Signup() {
               
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || departmentsLoading || departments.length === 0}
                 className="col-span-3 flex items-center justify-center gap-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white py-2.5 rounded-xl font-bold text-sm shadow-md transition duration-150 disabled:opacity-50"
               >
                 {loading ? (
                   <>
                     <Loader2 className="w-4.5 h-4.5 animate-spin" />
                     Registering...
+                  </>
+                ) : departmentsLoading ? (
+                  <>
+                    <Loader2 className="w-4.5 h-4.5 animate-spin" />
+                    Loading...
                   </>
                 ) : (
                   'Complete Setup'

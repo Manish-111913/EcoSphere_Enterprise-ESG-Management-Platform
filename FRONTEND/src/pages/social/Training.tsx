@@ -9,6 +9,7 @@ import ChartCard from '../../components/ui-kit/ChartCard';
 import DataTable, { Column } from '../../components/ui-kit/DataTable';
 import FormDrawer from '../../components/ui-kit/FormDrawer';
 import StatusBadge from '../../components/ui-kit/StatusBadge';
+import SelectField from '../../components/ui/select-field';
 import { mockEmployees } from '../../mocks/db';
 import {
   socialMetricsService, CURRENT_QUARTER, TrainingRecord, TrainingStatus
@@ -195,17 +196,30 @@ export default function Training() {
       <div className="bg-white border border-neutral-border p-4 rounded-2xl shadow-sm grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="space-y-1">
           <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Department</label>
-          <select value={selectedDept} onChange={e => setSelectedDept(e.target.value)} className="w-full text-xs px-3 py-2 border border-neutral-border bg-white rounded-xl focus:outline-none font-semibold text-neutral-text-dark">
-            <option value="All">All Departments</option>
-            {departments.map(d => <option key={d} value={d}>{d}</option>)}
-          </select>
+          <SelectField
+            value={selectedDept}
+            onValueChange={setSelectedDept}
+            options={[
+              { value: 'All', label: 'All Departments' },
+              ...departments.map((department) => ({ value: department, label: department })),
+            ]}
+            triggerClassName="w-full h-10 text-xs px-3 py-2 font-semibold text-neutral-text-dark"
+          />
         </div>
         <div className="space-y-1">
           <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Status</label>
-          <select value={selectedStatus} onChange={e => setSelectedStatus(e.target.value)} className="w-full text-xs px-3 py-2 border border-neutral-border bg-white rounded-xl focus:outline-none font-semibold text-neutral-text-dark">
-            <option value="All">All Statuses</option>
-            {(['Completed', 'In Progress', 'Not Started', 'Overdue'] as TrainingStatus[]).map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          <SelectField
+            value={selectedStatus}
+            onValueChange={setSelectedStatus}
+            options={[
+              { value: 'All', label: 'All Statuses' },
+              ...(['Completed', 'In Progress', 'Not Started', 'Overdue'] as TrainingStatus[]).map((status) => ({
+                value: status,
+                label: status,
+              })),
+            ]}
+            triggerClassName="w-full h-10 text-xs px-3 py-2 font-semibold text-neutral-text-dark"
+          />
         </div>
         <div className="space-y-1">
           <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Completed From</label>
@@ -327,9 +341,15 @@ export default function Training() {
             </div>
             <div className="space-y-1.5">
               <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Status</label>
-              <select value={formStatus} onChange={e => setFormStatus(e.target.value as TrainingStatus)} className="w-full text-xs px-3 py-2.5 border border-neutral-border bg-white rounded-xl focus:outline-none font-semibold text-neutral-text-dark">
-                {(['Completed', 'In Progress', 'Not Started', 'Overdue'] as TrainingStatus[]).map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
+              <SelectField
+                value={formStatus}
+                onValueChange={(value) => setFormStatus(value as TrainingStatus)}
+                options={(['Completed', 'In Progress', 'Not Started', 'Overdue'] as TrainingStatus[]).map((status) => ({
+                  value: status,
+                  label: status,
+                }))}
+                triggerClassName="w-full h-10 text-xs px-3 py-2.5 font-semibold text-neutral-text-dark"
+              />
             </div>
           </div>
 

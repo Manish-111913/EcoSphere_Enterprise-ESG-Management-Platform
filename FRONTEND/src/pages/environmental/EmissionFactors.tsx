@@ -6,6 +6,7 @@ import DataTable, { Column } from '../../components/ui-kit/DataTable';
 import FormDrawer from '../../components/ui-kit/FormDrawer';
 import StatusBadge, { StatusValue } from '../../components/ui-kit/StatusBadge';
 import { useToast } from '../../components/ui-kit/Toast';
+import SelectField from '../../components/ui/select-field';
 
 export default function EmissionFactors() {
   const { addToast } = useToast();
@@ -474,15 +475,16 @@ export default function EmissionFactors() {
               <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider flex items-center gap-1">
                 <Layers className="h-3 w-3" /> Scope
               </label>
-              <select
-                value={formScope}
-                onChange={e => setFormScope(Number(e.target.value) as 1 | 2 | 3)}
-                className="w-full text-xs px-3.5 py-2.5 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal focus:border-primary-teal font-semibold"
-              >
-                <option value={1}>Scope 1 - Direct</option>
-                <option value={2}>Scope 2 - Indirect</option>
-                <option value={3}>Scope 3 - Value Chain</option>
-              </select>
+              <SelectField
+                value={String(formScope)}
+                onValueChange={(value) => setFormScope(Number(value) as 1 | 2 | 3)}
+                options={[
+                  { value: '1', label: 'Scope 1 - Direct' },
+                  { value: '2', label: 'Scope 2 - Indirect' },
+                  { value: '3', label: 'Scope 3 - Value Chain' },
+                ]}
+                triggerClassName="w-full h-10 text-xs px-3.5 py-2.5 font-semibold"
+              />
             </div>
 
             {/* Unit Select */}
@@ -490,15 +492,12 @@ export default function EmissionFactors() {
               <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">
                 Unit Select <span className="text-red-500">*</span>
               </label>
-              <select
+              <SelectField
                 value={formUnit}
-                onChange={e => setFormUnit(e.target.value)}
-                className="w-full text-xs px-3.5 py-2.5 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal focus:border-primary-teal font-semibold"
-              >
-                {units.map((unit, idx) => (
-                  <option key={idx} value={unit}>{unit}</option>
-                ))}
-              </select>
+                onValueChange={setFormUnit}
+                options={units.map((unit) => ({ value: unit, label: unit }))}
+                triggerClassName="w-full h-10 text-xs px-3.5 py-2.5 font-semibold"
+              />
             </div>
           </div>
 

@@ -22,6 +22,7 @@ import ChartCard from '../../components/ui-kit/ChartCard';
 import StatCard from '../../components/ui-kit/StatCard';
 import StatusBadge, { StatusValue } from '../../components/ui-kit/StatusBadge';
 import { useToast } from '../../components/ui-kit/Toast';
+import SelectField from '../../components/ui/select-field';
 import {
   BarChart,
   Bar,
@@ -432,16 +433,18 @@ export default function CarbonTransactions() {
           {/* Dept */}
           <div className="space-y-1">
             <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Department</label>
-            <select
+            <SelectField
               value={filterDept}
-              onChange={e => setFilterDept(e.target.value)}
-              className="w-full text-xs px-3 py-2 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal font-semibold"
-            >
-              <option value="All">All Departments</option>
-              {departments.map((d, i) => (
-                <option key={i} value={d}>{d}</option>
-              ))}
-            </select>
+              onValueChange={setFilterDept}
+              options={[
+                { value: 'All', label: 'All Departments' },
+                ...departments.map((department) => ({
+                  value: department,
+                  label: department,
+                })),
+              ]}
+              triggerClassName="w-full h-9 text-xs px-3 py-2 font-semibold"
+            />
           </div>
 
           {/* Start Date */}
@@ -469,15 +472,16 @@ export default function CarbonTransactions() {
           {/* Mode */}
           <div className="space-y-1">
             <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Capture Mode</label>
-            <select
+            <SelectField
               value={filterMode}
-              onChange={e => setFilterMode(e.target.value as any)}
-              className="w-full text-xs px-3 py-2 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal font-semibold"
-            >
-              <option value="All">All Modes</option>
-              <option value="Auto">Auto Streams</option>
-              <option value="Manual">Manual Logs</option>
-            </select>
+              onValueChange={(value) => setFilterMode(value as any)}
+              options={[
+                { value: 'All', label: 'All Modes' },
+                { value: 'Auto', label: 'Auto Streams' },
+                { value: 'Manual', label: 'Manual Logs' },
+              ]}
+              triggerClassName="w-full h-9 text-xs px-3 py-2 font-semibold"
+            />
           </div>
 
           {/* Factor Search */}
@@ -674,15 +678,15 @@ export default function CarbonTransactions() {
             <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">
               Reporting Department <span className="text-red-500">*</span>
             </label>
-            <select
+            <SelectField
               value={formDept}
-              onChange={e => setFormDept(e.target.value)}
-              className="w-full text-xs px-3.5 py-2.5 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal font-semibold"
-            >
-              {departments.map((dept, i) => (
-                <option key={i} value={dept}>{dept}</option>
-              ))}
-            </select>
+              onValueChange={setFormDept}
+              options={departments.map((department) => ({
+                value: department,
+                label: department,
+              }))}
+              triggerClassName="w-full h-10 text-xs px-3.5 py-2.5 font-semibold"
+            />
           </div>
 
           {/* Factor SearchableSelect */}

@@ -10,6 +10,7 @@ import { useToast } from '../../components/ui-kit/Toast';
 import FormDrawer from '../../components/ui-kit/FormDrawer';
 import ConfirmDialog from '../../components/ui-kit/ConfirmDialog';
 import StatusBadge from '../../components/ui-kit/StatusBadge';
+import SelectField from '../../components/ui/select-field';
 import { environmentalService, EmissionFactor } from '../../services/environmentalService';
 import { mockDepartments } from '../../mocks/db';
 
@@ -393,30 +394,33 @@ export default function OperationalRecords() {
         {/* Department filter */}
         <div className="space-y-1">
           <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Department Allocation</label>
-          <select
+          <SelectField
             value={selectedDept}
-            onChange={e => setSelectedDept(e.target.value)}
-            className="w-full text-xs px-3 py-2 border border-neutral-border bg-white rounded-xl focus:outline-none font-semibold text-neutral-text-dark"
-          >
-            <option value="All">All Departments</option>
-            {mockDepartments.map(d => (
-              <option key={d.id} value={d.name}>{d.name}</option>
-            ))}
-          </select>
+            onValueChange={setSelectedDept}
+            options={[
+              { value: 'All', label: 'All Departments' },
+              ...mockDepartments.map((department) => ({
+                value: department.name,
+                label: department.name,
+              })),
+            ]}
+            triggerClassName="w-full h-9 text-xs px-3 py-2 font-semibold text-neutral-text-dark"
+          />
         </div>
 
         {/* Status filter */}
         <div className="space-y-1">
           <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Calculation Status</label>
-          <select
+          <SelectField
             value={selectedStatus}
-            onChange={e => setSelectedStatus(e.target.value)}
-            className="w-full text-xs px-3 py-2 border border-neutral-border bg-white rounded-xl focus:outline-none font-semibold text-neutral-text-dark"
-          >
-            <option value="All">All Statuses</option>
-            <option value="Calculated">Calculated Only</option>
-            <option value="Uncalculated">Uncalculated Only</option>
-          </select>
+            onValueChange={setSelectedStatus}
+            options={[
+              { value: 'All', label: 'All Statuses' },
+              { value: 'Calculated', label: 'Calculated Only' },
+              { value: 'Uncalculated', label: 'Uncalculated Only' },
+            ]}
+            triggerClassName="w-full h-9 text-xs px-3 py-2 font-semibold text-neutral-text-dark"
+          />
         </div>
       </div>
 
@@ -536,19 +540,17 @@ export default function OperationalRecords() {
 
           <div className="space-y-1.5">
             <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Emission Factor Link</label>
-            <select
+            <SelectField
               value={formFactorId}
-              required
-              onChange={e => setFormFactorId(e.target.value)}
-              className="w-full text-xs px-3.5 py-2.5 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal font-semibold text-neutral-text-dark"
-            >
-              <option value="">-- Select Resource Activity Type --</option>
-              {emissionFactors.map(f => (
-                <option key={f.id} value={f.id}>
-                  {f.name} ({f.unit})
-                </option>
-              ))}
-            </select>
+              onValueChange={setFormFactorId}
+              options={emissionFactors.map((factor) => ({
+                value: factor.id,
+                label: `${factor.name} (${factor.unit})`,
+              }))}
+              placeholder="-- Select Resource Activity Type --"
+              allowEmpty
+              triggerClassName="w-full h-10 text-xs px-3.5 py-2.5 font-semibold text-neutral-text-dark"
+            />
           </div>
 
           <div className="space-y-1.5">
@@ -579,17 +581,17 @@ export default function OperationalRecords() {
 
           <div className="space-y-1.5">
             <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Department Allocation</label>
-            <select
+            <SelectField
               value={formDeptName}
-              required
-              onChange={e => setFormDeptName(e.target.value)}
-              className="w-full text-xs px-3.5 py-2.5 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal font-semibold text-neutral-text-dark"
-            >
-              <option value="">-- Choose Corporate Department --</option>
-              {mockDepartments.map(d => (
-                <option key={d.id} value={d.name}>{d.name}</option>
-              ))}
-            </select>
+              onValueChange={setFormDeptName}
+              options={mockDepartments.map((department) => ({
+                value: department.name,
+                label: department.name,
+              }))}
+              placeholder="-- Choose Corporate Department --"
+              allowEmpty
+              triggerClassName="w-full h-10 text-xs px-3.5 py-2.5 font-semibold text-neutral-text-dark"
+            />
           </div>
 
           <div className="p-4 bg-neutral-bg/40 border border-neutral-border rounded-2xl flex gap-3 text-[11px] text-neutral-text-muted">

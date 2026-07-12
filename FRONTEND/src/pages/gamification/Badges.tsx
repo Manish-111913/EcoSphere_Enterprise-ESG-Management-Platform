@@ -20,6 +20,7 @@ import {
   AlertCircle,
   X
 } from 'lucide-react';
+import SelectField from '../../components/ui/select-field';
 
 export default function Badges() {
   const { user, role, refreshUser } = useApp();
@@ -255,20 +256,21 @@ export default function Badges() {
 
                 <div className="space-y-1">
                   <label className="text-[11px] font-bold text-neutral-text-dark block">Icon Symbol</label>
-                  <select
+                  <SelectField
                     value={ruleForm.icon}
-                    onChange={(e) => setRuleForm(prev => ({ ...prev, icon: e.target.value }))}
-                    className="w-full bg-neutral-bg text-xs px-3 py-2 border border-neutral-border rounded-button outline-none text-neutral-text-dark cursor-pointer"
-                  >
-                    <option value="Leaf">Leaf (Sustainability)</option>
-                    <option value="Zap">Zap (Energy Efficiency)</option>
-                    <option value="Users">Users (Social impact)</option>
-                    <option value="Trophy">Trophy (Achievements)</option>
-                    <option value="ShieldCheck">ShieldCheck (Compliance Audit)</option>
-                    <option value="Sparkles">Sparkles (Special bonus)</option>
-                    <option value="Trash2">Trash2 (Zero Waste)</option>
-                    <option value="CheckSquare">CheckSquare (Audit closed)</option>
-                  </select>
+                    onValueChange={(value) => setRuleForm((prev) => ({ ...prev, icon: value }))}
+                    options={[
+                      { value: 'Leaf', label: 'Leaf (Sustainability)' },
+                      { value: 'Zap', label: 'Zap (Energy Efficiency)' },
+                      { value: 'Users', label: 'Users (Social impact)' },
+                      { value: 'Trophy', label: 'Trophy (Achievements)' },
+                      { value: 'ShieldCheck', label: 'ShieldCheck (Compliance Audit)' },
+                      { value: 'Sparkles', label: 'Sparkles (Special bonus)' },
+                      { value: 'Trash2', label: 'Trash2 (Zero Waste)' },
+                      { value: 'CheckSquare', label: 'CheckSquare (Audit closed)' },
+                    ]}
+                    triggerClassName="w-full h-10 bg-neutral-bg text-xs px-3 py-2 border-neutral-border rounded-button text-neutral-text-dark"
+                  />
                 </div>
               </div>
 

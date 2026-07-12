@@ -4,6 +4,7 @@ import { useToast } from '../components/ui-kit/Toast';
 import FormDrawer from '../components/ui-kit/FormDrawer';
 import ConfirmDialog from '../components/ui-kit/ConfirmDialog';
 import StatusBadge from '../components/ui-kit/StatusBadge';
+import SelectField from '../components/ui/select-field';
 import { gamificationService } from '../services/gamificationService';
 import { mockDepartments } from '../mocks/db';
 import { 
@@ -339,16 +340,18 @@ export default function Employees() {
           {/* Department dropdown */}
           <div className="space-y-1">
             <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Department</label>
-            <select
+            <SelectField
               value={selectedDept}
-              onChange={e => setSelectedDept(e.target.value)}
-              className="w-full text-xs px-3 py-2 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal font-semibold text-neutral-text-dark"
-            >
-              <option value="All">All Departments</option>
-              {mockDepartments.map(d => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
+              onValueChange={setSelectedDept}
+              options={[
+                { value: 'All', label: 'All Departments' },
+                ...mockDepartments.map((department) => ({
+                  value: department.id,
+                  label: department.name,
+                })),
+              ]}
+              triggerClassName="w-full h-9 text-xs px-3 py-2 font-semibold text-neutral-text-dark"
+            />
           </div>
 
           {/* Role Multi-Select dropdown */}
@@ -387,15 +390,16 @@ export default function Employees() {
           {/* Status dropdown */}
           <div className="space-y-1">
             <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Status</label>
-            <select
+            <SelectField
               value={selectedStatus}
-              onChange={e => setSelectedStatus(e.target.value as any)}
-              className="w-full text-xs px-3 py-2 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal font-semibold text-neutral-text-dark"
-            >
-              <option value="All">All statuses</option>
-              <option value="Active">Active Only</option>
-              <option value="Inactive">Inactive Only</option>
-            </select>
+              onValueChange={(value) => setSelectedStatus(value as any)}
+              options={[
+                { value: 'All', label: 'All statuses' },
+                { value: 'Active', label: 'Active Only' },
+                { value: 'Inactive', label: 'Inactive Only' },
+              ]}
+              triggerClassName="w-full h-9 text-xs px-3 py-2 font-semibold text-neutral-text-dark"
+            />
           </div>
         </div>
       </div>
@@ -556,30 +560,30 @@ export default function Employees() {
 
           <div className="space-y-1.5">
             <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Authority Role</label>
-            <select
+            <SelectField
               value={inviteRole}
-              onChange={e => setInviteRole(e.target.value as UserRole)}
-              className="w-full text-xs px-3.5 py-2.5 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal font-semibold text-neutral-text-dark"
-            >
-              {availableRoles.map(roleName => (
-                <option key={roleName} value={roleName}>{roleName}</option>
-              ))}
-            </select>
+              onValueChange={(value) => setInviteRole(value as UserRole)}
+              options={availableRoles.map((roleName) => ({
+                value: roleName,
+                label: roleName,
+              }))}
+              triggerClassName="w-full h-10 text-xs px-3.5 py-2.5 font-semibold text-neutral-text-dark"
+            />
           </div>
 
           <div className="space-y-1.5">
             <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Department Allocation</label>
-            <select
+            <SelectField
               value={inviteDeptId}
-              required
-              onChange={e => setInviteDeptId(e.target.value)}
-              className="w-full text-xs px-3.5 py-2.5 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal font-semibold text-neutral-text-dark"
-            >
-              <option value="">-- Choose Corporate Department --</option>
-              {mockDepartments.map(d => (
-                <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
-              ))}
-            </select>
+              onValueChange={setInviteDeptId}
+              options={mockDepartments.map((department) => ({
+                value: department.id,
+                label: `${department.name} (${department.code})`,
+              }))}
+              placeholder="-- Choose Corporate Department --"
+              allowEmpty
+              triggerClassName="w-full h-10 text-xs px-3.5 py-2.5 font-semibold text-neutral-text-dark"
+            />
           </div>
 
           <div className="p-4 bg-emerald-50/50 border border-emerald-100 rounded-2xl flex gap-3 text-[11px] text-emerald-800 leading-relaxed font-semibold">
@@ -653,15 +657,15 @@ export default function Employees() {
 
           <div className="space-y-1.5">
             <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">Department</label>
-            <select
+            <SelectField
               value={editDeptId}
-              onChange={e => setEditDeptId(e.target.value)}
-              className="w-full text-xs px-3.5 py-2.5 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal font-semibold text-neutral-text-dark"
-            >
-              {mockDepartments.map(d => (
-                <option key={d.id} value={d.id}>{d.name}</option>
-              ))}
-            </select>
+              onValueChange={setEditDeptId}
+              options={mockDepartments.map((department) => ({
+                value: department.id,
+                label: department.name,
+              }))}
+              triggerClassName="w-full h-10 text-xs px-3.5 py-2.5 font-semibold text-neutral-text-dark"
+            />
           </div>
 
           <div className="space-y-1.5">

@@ -1,47 +1,151 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useApp } from '../../context/AppContext';
-import { socialGovernanceService } from '../../services/socialGovernanceService';
+import { useParams, Link } from 'react-router-dom';
+import { useAuth } from '../../context/auth';
+import { policiesService, PolicyAcknowledgementView } from '../../services/policiesService';
 import { useToast } from '../../components/ui-kit/Toast';
+import { ApiError } from '../../services/apiClient';
+import { Policy } from '../../types';
 import {
-  FileText,
   ArrowLeft,
   CheckCircle2,
   AlertTriangle,
   Clock,
-  ShieldCheck,
-  UserCheck
+  UserCheck,
 } from 'lucide-react';
+
+function getPolicySections(policyTitle: string) {
+  const title = policyTitle.toLowerCase();
+
+  if (title.includes('conduct')) {
+    return [
+      { title: '1. Executive Mandate', text: 'EcoSphere prohibits bribery, extortion, embezzlement, and corruption in all internal and external dealings.' },
+      { title: '2. Gifts & Hospitality', text: 'Employees must avoid inappropriate gifts, favors, or hospitality that could influence commercial or compliance decisions.' },
+      { title: '3. Conflict Disclosure', text: 'Potential conflicts of interest must be disclosed promptly so they can be reviewed and managed appropriately.' },
+      { title: '4. Reporting & Non-Retaliation', text: 'Suspected violations must be reported through approved channels, and good-faith reporting must never lead to retaliation.' },
+    ];
+  }
+
+  if (title.includes('environment')) {
+    return [
+      { title: '1. Scope', text: 'This policy defines the organization’s approach to carbon reduction, waste minimization, and resource stewardship.' },
+      { title: '2. Energy Practices', text: 'Teams are expected to follow approved shutdown, monitoring, and energy-efficiency practices across facilities and systems.' },
+      { title: '3. Waste Reduction', text: 'Departments must support recycling, responsible disposal, and reduced dependence on single-use materials.' },
+      { title: '4. Procurement Alignment', text: 'Operational purchasing should prefer suppliers and materials that support sustainability targets and measurable improvements.' },
+    ];
+  }
+
+  if (title.includes('privacy')) {
+    return [
+      { title: '1. Data Handling', text: 'Personal, operational, and regulated information must be stored, accessed, and transferred according to approved data handling controls.' },
+      { title: '2. Access Control', text: 'Systems and devices that process sensitive information must use strong authentication, access review, and secure storage practices.' },
+      { title: '3. Physical Safeguards', text: 'Critical records and infrastructure must remain protected through appropriate physical and administrative safeguards.' },
+      { title: '4. Incident Response', text: 'Potential data exposure or loss events must be reported immediately so remediation and notification workflows can begin.' },
+    ];
+  }
+
+  if (title.includes('safety')) {
+    return [
+      { title: '1. Safety Scope', text: 'This policy establishes workplace safety responsibilities, reporting channels, and operational safeguards for active teams and facilities.' },
+      { title: '2. Hazard Prevention', text: 'Departments must identify, document, and mitigate safety hazards promptly, including equipment, workspace, and environmental risks.' },
+      { title: '3. Incident Reporting', text: 'All incidents, near misses, and unsafe conditions must be reported immediately through the approved internal process.' },
+      { title: '4. Training & Accountability', text: 'Managers are responsible for ensuring employees complete required safety training and follow documented procedures.' },
+    ];
+  }
+
+  return [
+    { title: '1. Purpose & Coverage', text: 'This document outlines the expectations, controls, and responsibilities associated with this policy across the organization.' },
+    { title: '2. Operational Requirements', text: 'Applicable teams must implement required controls, maintain records, and follow approved review procedures.' },
+    { title: '3. Oversight & Review', text: 'Compliance with this policy is monitored through periodic reviews, manager oversight, and corrective actions where needed.' },
+    { title: '4. Enforcement', text: 'Failure to follow this policy may result in remediation steps, additional training requirements, or administrative escalation.' },
+  ];
+}
 
 export default function PolicyDetail() {
   const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const { user } = useApp();
-  const { addToast } = useToast();
+  const { employeeId, user } = useAuth();
+  const { toast } = useToast();
 
   const [hasScrolledToEnd, setHasScrolledToEnd] = useState(false);
-  const [acknowledgedRecord, setAcknowledgedRecord] = useState<any | null>(null);
+  const [policy, setPolicy] = useState<Policy | null>(null);
+  const [acknowledgedRecord, setAcknowledgedRecord] = useState<PolicyAcknowledgementView | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
-  const policy = socialGovernanceService.getPolicyById(id || '');
-  const employees = socialGovernanceService.getEmployees();
-  const acknowledgements = socialGovernanceService.getPolicyAcknowledgements();
-
-  const currentEmployee = employees.find(emp => emp.email === user?.email) || employees[0];
-
   useEffect(() => {
-    if (policy && currentEmployee) {
-      const ack = acknowledgements.find(
-        a => a.policyId === policy.id && a.employeeId === currentEmployee.id && a.status === 'Completed'
-      );
-      if (ack) {
-        setAcknowledgedRecord(ack);
-        setHasScrolledToEnd(true); // already signed
-      }
+    if (!id) {
+      setLoading(false);
+      setNotFound(true);
+      return;
     }
-  }, [policy, currentEmployee, acknowledgements]);
 
-  if (!policy) {
+    let active = true;
+    setLoading(true);
+
+    Promise.all([
+      policiesService.getPolicyById(id),
+      policiesService.getAcknowledgements(id).catch(() => []),
+    ])
+      .then(([policyRow, acknowledgements]) => {
+        if (!active) return;
+        setPolicy(policyRow);
+        if (employeeId) {
+          const ack = acknowledgements.find((a) => a.employeeId === employeeId) ?? null;
+          setAcknowledgedRecord(ack);
+          if (ack) setHasScrolledToEnd(true);
+        }
+        setNotFound(false);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setNotFound(err instanceof ApiError && err.status === 404);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [id, employeeId]);
+
+  const handleScroll = () => {
+    const el = scrollContainerRef.current;
+    if (!el || acknowledgedRecord) return;
+    const isAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 10;
+    if (isAtBottom) setHasScrolledToEnd(true);
+  };
+
+  const handleAcknowledge = () => {
+    if (!policy) return;
+    policiesService
+      .acknowledge(policy.id)
+      .then(() => {
+        const ack: PolicyAcknowledgementView = {
+          id: `ack-${Date.now()}`,
+          policyId: policy.id,
+          policyVersion: Number(policy.version),
+          employeeId: employeeId ?? '',
+          acknowledgedAt: new Date().toISOString(),
+        };
+        setAcknowledgedRecord(ack);
+        toast('Policy Acknowledged', 'success', `You have successfully signed off on ${policy.title}.`);
+      })
+      .catch((err) => {
+        const message = err instanceof ApiError ? err.message : 'Unable to acknowledge this policy.';
+        toast('Acknowledgement Failed', 'error', message);
+      });
+  };
+
+  if (loading) {
+    return (
+      <div className="p-12 text-center max-w-md mx-auto space-y-4">
+        <div className="text-sm text-neutral-text-muted">Loading policy document...</div>
+      </div>
+    );
+  }
+
+  if (!policy || notFound) {
     return (
       <div className="p-12 text-center max-w-md mx-auto space-y-4">
         <AlertTriangle className="h-12 w-12 text-red-500 mx-auto" />
@@ -56,83 +160,10 @@ export default function PolicyDetail() {
     );
   }
 
-  // Scroll handler
-  const handleScroll = () => {
-    const el = scrollContainerRef.current;
-    if (!el || acknowledgedRecord) return;
-
-    // Check if user reached bottom of container
-    const isAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 10;
-    if (isAtBottom) {
-      setHasScrolledToEnd(true);
-    }
-  };
-
-  const handleAcknowledge = () => {
-    if (!currentEmployee) {
-      addToast({
-        title: 'Session Error',
-        description: 'Unable to identify current employee session.',
-        type: 'danger'
-      });
-      return;
-    }
-
-    const newAck = socialGovernanceService.acknowledgePolicy(policy.id, currentEmployee.id);
-    setAcknowledgedRecord(newAck);
-    addToast({
-      title: 'Policy Acknowledged',
-      description: `You have successfully signed off on ${policy.title}.`,
-      type: 'success'
-    });
-  };
-
-  // Content paragraph arrays to render
-  const getPolicySections = (policyId: string) => {
-    switch (policyId) {
-      case 'pol-1':
-        return [
-          { title: '1. Executive Mandate', text: 'EcoSphere strictly prohibits any form of bribery, extortion, embezzlement, or corruption. All corporate relations, procurements, and vendor decisions must be based entirely on open-market competitiveness and compliant commercial practices.' },
-          { title: '2. Gift Limits & Thresholds', text: 'Employees must not solicit, accept, or offer any financial incentives, gifts, luxury travel, or excessive hospitality from or to active suppliers. Token promotional items value capped strictly at $50 USD maximum may be permitted with department sign-off.' },
-          { title: '3. Procurement Transparency & Conflict of Interest', text: 'Any potential conflicts of interest must be disclosed immediately to the Legal & Compliance unit. Relationships with vendor stakeholders must be fully declared prior to placing purchase orders.' },
-          { title: '4. Reporting Channels & Non-Retaliation', text: 'Violations or compliance suspicions must be channeled immediately via the secure whistleblower portal (compliance@ecosphere.com). Retaliation against any employee raising issues in good faith is strictly illegal and subject to summary termination.' }
-        ];
-      case 'pol-2':
-        return [
-          { title: '1. Purpose & Scope', text: 'This policy governs EcoSphere’s commitment to minimizing its direct and indirect environmental footprint. Targets cover scope 1, 2, and 3 carbon reduction, waste reduction, water conservation, and sustainable travel.' },
-          { title: '2. Active Energy Preservation', text: 'All workspaces and data rooms must enforce energy conservation thresholds. Computers, laptops, auxiliary server screens, and office lighting grids must be fully shut down at close of operational shifts.' },
-          { title: '3. Waste Minimization & Zero-Plastic Initiatives', text: 'The use of single-use plastics is restricted on company premises. Recyclable materials, paper bins, and organic waste separation grids must be mapped and maintained on all administrative floors.' },
-          { title: '4. Green Purchasing & Logistics', text: 'Operational procurement must prioritize suppliers that demonstrate proactive decarbonization efforts, recycled material sourcing, and efficient freight routing.' }
-        ];
-      case 'pol-3':
-        return [
-          { title: '1. Equal Opportunity Core Guarantee', text: 'EcoSphere is committed to maintaining a diverse, inclusive, and equitable working environment. Selection, hiring, promotion, and payroll compensation are handled strictly without regard to race, gender, religion, age, sexual orientation, or disability.' },
-          { title: '2. Inclusion Roster and Mentorship Metrics', text: 'Departments must actively participate in corporate mentorship programs to empower underrepresented demographics, providing fair career opportunities and professional skills training.' },
-          { title: '3. Anti-Harassment & Discrimination Protocols', text: 'Zero tolerance is enforced for discriminatory actions, verbal slurs, or psychological harassment. Formal incident reports are audited by the HR and Legal divisions, guaranteeing fully confidential reviews.' },
-          { title: '4. Physical and Digital Accessibility Standards', text: 'All shared office resources, communication channels, and digital tools must conform to accessibility standards to accommodate personnel with diverse physical requirements.' }
-        ];
-      case 'pol-4':
-        return [
-          { title: '1. Protected Health Information & HIPAA Compliance', text: 'Any handling, logging, storage, or transmission of medical records, medical leaves, or personal identifier data must strictly adhere to HIPAA and GDPR parameters.' },
-          { title: '2. Server Security & Device Enforcements', text: 'Critical databases must be protected with modern cryptographic mechanisms. Mobile devices used for business files must utilize corporate authentication screens and active security keys.' },
-          { title: '3. Physical Access Controls', text: 'Data warehouses and physical communications racks must remain locked and subject to biometric or passcode verifications, with logs inspected weekly by the compliance team.' },
-          { title: '4. Incident Response and Data Leak Remediation', text: 'Any suspect data leakage or device theft must be flagged to security teams within 2 hours. Mitigation workflows must initiate immediately to notify impacted stakeholders.' }
-        ];
-      default:
-        return [
-          { title: '1. Vendor Qualification Requirements', text: 'Supply chain management must audit third-party logistics and material vendors. Qualifying suppliers must sign off on EcoSphere’s Supplier Code of Conduct and provide verified ESG emission scopes.' },
-          { title: '2. Auditing and Periodic Performance Checklists', text: 'Vendor performance audits are conducted bi-annually. Logistics providers must report direct fuel consumption logs to maintain certified vendor status.' },
-          { title: '3. Sustainable Materials Sourcing', text: 'Procured raw goods must hold FSC, FairTrade, or equivalent green certifications. Packaging materials must be comprised of at least 80% post-consumer recycled content.' },
-          { title: '4. Supply Chain Rectification Protocols', text: 'Should a supplier fail to meet ethical standards or environmental thresholds, a 60-day remediation roadmap must be drafted. Failure to resolve issues results in agreement cancellation.' }
-        ];
-    }
-  };
-
-  const sections = getPolicySections(policy.id);
+  const sections = getPolicySections(policy.title);
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6" id="policy-detail-page">
-      {/* Navigation and Title */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-neutral-border pb-5">
         <div className="space-y-1">
           <Link
@@ -146,14 +177,13 @@ export default function PolicyDetail() {
           </h1>
           <p className="text-xs text-neutral-text-muted flex items-center gap-3">
             <span>Pillar: {policy.pillar}</span>
-            <span>·</span>
+            <span>|</span>
             <span>Version: v{policy.version}</span>
-            <span>·</span>
+            <span>|</span>
             <span>Effective Date: {policy.effectiveDate}</span>
           </p>
         </div>
 
-        {/* Status Indicator */}
         {acknowledgedRecord ? (
           <span className="self-start sm:self-center bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5 shrink-0">
             <CheckCircle2 className="h-4.5 w-4.5 text-emerald-600" /> Acknowledged Compliance
@@ -165,7 +195,6 @@ export default function PolicyDetail() {
         )}
       </div>
 
-      {/* Document scrollable container */}
       <div className="space-y-2">
         <div className="text-xs font-bold text-neutral-text-muted flex items-center justify-between px-1">
           <span>Official Legal Document Viewer</span>
@@ -176,7 +205,6 @@ export default function PolicyDetail() {
           )}
         </div>
 
-        {/* Scrollable container with handler */}
         <div
           ref={scrollContainerRef}
           onScroll={handleScroll}
@@ -184,7 +212,6 @@ export default function PolicyDetail() {
           id="policy-scroll-pane"
           style={{ backgroundImage: 'radial-gradient(rgba(0,0,0,0.02) 1px, transparent 0)', backgroundSize: '24px 24px' }}
         >
-          {/* Cover Sheet */}
           <div className="text-center pb-8 border-b border-neutral-border/40 space-y-2">
             <div className="text-[10px] font-extrabold text-primary-teal uppercase tracking-widest">
               EcoSphere ESG Compliance Protocol
@@ -193,13 +220,12 @@ export default function PolicyDetail() {
               {policy.title}
             </h2>
             <div className="text-xs text-neutral-text-muted">
-              Classification: Internal Document · Rev v{policy.version} · Active
+              Classification: Internal Document | Rev v{policy.version} | Active
             </div>
           </div>
 
-          {/* Render Sections */}
-          {sections.map((sec, sIdx) => (
-            <div key={sIdx} className="space-y-2">
+          {sections.map((sec, idx) => (
+            <div key={idx} className="space-y-2">
               <h4 className="font-bold text-neutral-text-dark text-base tracking-tight">
                 {sec.title}
               </h4>
@@ -209,14 +235,12 @@ export default function PolicyDetail() {
             </div>
           ))}
 
-          {/* End mark */}
           <div className="pt-8 border-t border-neutral-border/40 text-center text-xs text-neutral-text-muted font-mono uppercase tracking-widest">
             *** End of Compliance Document ***
           </div>
         </div>
       </div>
 
-      {/* Bottom Sign off control card */}
       <div className="bg-white rounded-xl border border-neutral-border p-5 shadow-xs flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         {acknowledgedRecord ? (
           <div className="flex items-start gap-3">
@@ -226,7 +250,7 @@ export default function PolicyDetail() {
             <div>
               <div className="text-xs font-bold text-neutral-text-dark">Successfully Acknowledged</div>
               <p className="text-[11px] text-neutral-text-muted leading-relaxed mt-0.5">
-                Signed electronically by <span className="font-bold">{currentEmployee?.name}</span> ({currentEmployee?.email}) on{' '}
+                Signed electronically by <span className="font-bold">{user?.name ?? 'Current User'}</span> on{' '}
                 <span className="font-semibold text-neutral-text-dark font-sans">
                   {new Date(acknowledgedRecord.acknowledgedAt).toLocaleString()}
                 </span>.
@@ -241,9 +265,9 @@ export default function PolicyDetail() {
             <div>
               <div className="text-xs font-bold text-neutral-text-dark">Awaiting Electronic Signature</div>
               <p className="text-[11px] text-neutral-text-muted leading-relaxed mt-0.5">
-                {hasScrolledToEnd 
-                  ? "You have completed reading. Please click the button to certify compliance." 
-                  : "Please scroll the document viewer entirely to the end to certify your understanding."}
+                {hasScrolledToEnd
+                  ? 'You have completed reading. Please click the button to certify compliance.'
+                  : 'Please scroll the document viewer entirely to the end to certify your understanding.'}
               </p>
             </div>
           </div>

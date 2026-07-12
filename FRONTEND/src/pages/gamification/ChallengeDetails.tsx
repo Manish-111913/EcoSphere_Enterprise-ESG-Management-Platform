@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
 import { useSettings } from '../../context/SettingsContext';
 import { gamificationService, EnhancedParticipation } from '../../services/gamificationService';
+import { challengesService } from '../../services/challengesService';
 import { Challenge, Employee } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -34,8 +35,8 @@ export default function ChallengeDetails() {
   const { user, role, refreshUser } = useApp();
   const { settings } = useSettings();
 
-  // Selected challenge & related stats
-  const challenge = useMemo(() => gamificationService.getChallengeById(id || ''), [id]);
+  const [challenge, setChallenge] = useState<Challenge | null>(null);
+  const [challengeLoading, setChallengeLoading] = useState(true);
   const employees = useMemo(() => gamificationService.getEmployees(), []);
   
   // Active employee ID based on current user session email
@@ -80,6 +81,60 @@ export default function ChallengeDetails() {
   useEffect(() => {
     loadData();
   }, [id, currentEmployee]);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadChallenge() {
+      if (!id) {
+        if (active) {
+          setChallenge(null);
+          setChallengeLoading(false);
+        }
+        return;
+      }
+
+      const localChallenge = gamificationService.getChallengeById(id);
+      if (localChallenge) {
+        if (active) {
+          setChallenge(localChallenge);
+          setChallengeLoading(false);
+        }
+        return;
+      }
+
+      setChallengeLoading(true);
+      try {
+        const liveChallenge = await challengesService.getChallengeById(id);
+        if (active) {
+          setChallenge(liveChallenge);
+        }
+      } catch {
+        if (active) {
+          setChallenge(null);
+        }
+      } finally {
+        if (active) {
+          setChallengeLoading(false);
+        }
+      }
+    }
+
+    void loadChallenge();
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  if (challengeLoading) {
+    return (
+      <div className="max-w-xl mx-auto py-16 px-4 text-center space-y-4">
+        <Loader2 className="h-12 w-12 text-primary-teal mx-auto animate-spin" />
+        <h2 className="text-xl font-bold text-neutral-text-dark font-sans">Loading Challenge</h2>
+        <p className="text-sm text-neutral-text-muted">Fetching the latest challenge details...</p>
+      </div>
+    );
+  }
 
   // Guard clause if challenge is not found
   if (!challenge) {
@@ -262,7 +317,7 @@ export default function ChallengeDetails() {
         list.push({
           id: `complete-${p.id}`,
           user: baseUser,
-          action: `completed the challenge! Earned +${challenge.xp} XP and +${challenge.points} Points.`,
+          action: `completed the challenge! Earned +${challenge?.xp ?? 0} XP and +${challenge?.points ?? 0} Points.`,
           time: p.timestamp ? new Date(p.timestamp).toLocaleDateString() : 'Recent',
           icon: Trophy,
           color: 'bg-emerald-100 text-emerald-700'

@@ -43,7 +43,7 @@ export default function ForgotPassword() {
         SECURITY PRACTICE:
         Always display a generic success confirmation banner regardless of 
         whether the email exists in the database. This prevents email 
-        enumeration/probing attacks, protecting corporate privacy.
+        enumeration/probing attacks and protects account privacy.
       */
       setIsSubmitted(true);
       toast('Reset link compiled', 'success', `If an account exists for ${email}, a reset link was compiled.`);
@@ -108,14 +108,14 @@ export default function ForgotPassword() {
             Recover your password
           </h1>
           <p className="text-xs text-neutral-text-muted leading-relaxed">
-            Enter your registered enterprise email below, and we'll transmit instructions to safely reset your security keys.
+            Enter your registered email below and we'll send instructions to reset your password.
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
             <label className="text-[11px] font-bold text-neutral-text-dark uppercase tracking-wider" htmlFor="email-forgot">
-              Work Email Address
+              Email Address
             </label>
             <div className="relative">
               <Mail className="absolute left-3 top-2.5 w-4 h-4 text-neutral-text-muted" />
@@ -123,7 +123,7 @@ export default function ForgotPassword() {
                 id="email-forgot"
                 type="email"
                 autoFocus
-                placeholder="dent@magrathea.com"
+                placeholder="you@example.com"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 onBlur={() => validateEmail(email)}

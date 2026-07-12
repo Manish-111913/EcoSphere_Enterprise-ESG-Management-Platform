@@ -32,6 +32,12 @@ export interface MeSummary {
   leaderboardRank: number | null;
 }
 
+export interface SignupDepartmentOption {
+  id: string;
+  name: string;
+  code: string;
+}
+
 export const apiAuth = {
   async login(email: string, password: string): Promise<LoginResponse> {
     const data = await api.postPublic<LoginResponse>('/auth/login', { email, password });
@@ -45,6 +51,10 @@ export const apiAuth = {
 
   summary(): Promise<MeSummary> {
     return api.get('/me/summary');
+  },
+
+  signupOptions(): Promise<{ departments: SignupDepartmentOption[] }> {
+    return api.getPublic('/auth/signup-options');
   },
 
   register(dto: { email: string; password: string; firstName: string; lastName: string; departmentId?: string }) {

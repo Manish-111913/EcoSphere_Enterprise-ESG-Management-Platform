@@ -5,6 +5,7 @@ import { csrService, CsrReviewItem } from '../../services/csrService';
 import { ApiError } from '../../services/apiClient';
 import { useToast } from '../../components/ui-kit/Toast';
 import { motion, AnimatePresence } from 'motion/react';
+import SelectField from '../../components/ui/select-field';
 import {
   ClipboardCheck,
   Check,
@@ -161,16 +162,17 @@ export default function Participation() {
 
         <div className="flex gap-2 items-center w-full sm:w-auto">
           <Filter className="h-4 w-4 text-neutral-text-muted shrink-0" />
-          <select
+          <SelectField
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="border border-neutral-border text-xs rounded-lg p-2 bg-white font-medium text-neutral-text-dark focus:outline-none"
-          >
-            <option value="All">All Statuses</option>
-            <option value="Pending">Pending Review</option>
-            <option value="Approved">Approved</option>
-            <option value="Rejected">Rejected</option>
-          </select>
+            onValueChange={setStatusFilter}
+            options={[
+              { value: 'All', label: 'All Statuses' },
+              { value: 'Pending', label: 'Pending Review' },
+              { value: 'Approved', label: 'Approved' },
+              { value: 'Rejected', label: 'Rejected' },
+            ]}
+            triggerClassName="h-9 rounded-lg p-2 text-xs font-medium text-neutral-text-dark"
+          />
         </div>
       </div>
 

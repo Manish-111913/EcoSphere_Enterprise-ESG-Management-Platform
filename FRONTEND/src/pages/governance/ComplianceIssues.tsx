@@ -4,6 +4,7 @@ import { useApp } from '../../context/AppContext';
 import { governanceService, DirectoryEmployee } from '../../services/governanceService';
 import { useToast } from '../../components/ui-kit/Toast';
 import { motion, AnimatePresence } from 'motion/react';
+import SelectField from '../../components/ui/select-field';
 import {
   AlertTriangle,
   Plus,
@@ -310,32 +311,35 @@ export default function ComplianceIssues() {
           {/* Status filter */}
           <div>
             <span className="text-[10px] font-bold text-neutral-text-muted block mb-1">Triage Status</span>
-            <select
+            <SelectField
               value={selectedStatus}
-              onChange={(e) => setSelectedStatus(e.target.value)}
-              className="w-full border border-neutral-border text-xs rounded-lg p-2 bg-white font-medium text-neutral-text-dark focus:outline-none"
-            >
-              <option value="All">All Statuses</option>
-              <option value="Open">Open</option>
-              <option value="In Progress">In Progress</option>
-              <option value="Resolved">Resolved</option>
-              <option value="Closed">Closed</option>
-            </select>
+              onValueChange={setSelectedStatus}
+              options={[
+                { value: 'All', label: 'All Statuses' },
+                { value: 'Open', label: 'Open' },
+                { value: 'In Progress', label: 'In Progress' },
+                { value: 'Resolved', label: 'Resolved' },
+                { value: 'Closed', label: 'Closed' },
+              ]}
+              triggerClassName="w-full h-9 rounded-lg p-2 text-xs font-medium text-neutral-text-dark"
+            />
           </div>
 
           {/* Owner filter */}
           <div>
             <span className="text-[10px] font-bold text-neutral-text-muted block mb-1">Responsible Owner</span>
-            <select
+            <SelectField
               value={selectedOwnerId}
-              onChange={(e) => setSelectedOwnerId(e.target.value)}
-              className="w-full border border-neutral-border text-xs rounded-lg p-2 bg-white font-medium text-neutral-text-dark focus:outline-none"
-            >
-              <option value="All">All Owners</option>
-              {employees.map(e => (
-                <option key={e.id} value={e.id}>{e.name} ({e.role})</option>
-              ))}
-            </select>
+              onValueChange={setSelectedOwnerId}
+              options={[
+                { value: 'All', label: 'All Owners' },
+                ...employees.map((employee) => ({
+                  value: employee.id,
+                  label: `${employee.name} (${employee.role})`,
+                })),
+              ]}
+              triggerClassName="w-full h-9 rounded-lg p-2 text-xs font-medium text-neutral-text-dark"
+            />
           </div>
 
           {/* Date range */}

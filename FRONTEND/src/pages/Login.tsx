@@ -86,6 +86,7 @@ export default function Login() {
       navigate(returnTo, { replace: true });
     } catch (err) {
       const nextFailures = failedAttempts + 1;
+      const message = err instanceof Error && err.message ? err.message : 'Invalid email or password';
       setFailedAttempts(nextFailures);
       
       if (nextFailures >= 5) {
@@ -93,7 +94,7 @@ export default function Login() {
         setBannerError('Account locked. You have exceeded 5 failed attempts. Please contact your IT administrator or use Quick Demo Access.');
         toast('Account Locked', 'error', 'Too many failed login attempts.');
       } else {
-        setBannerError(`Invalid corporate credentials. Attempt ${nextFailures} of 5.`);
+        setBannerError(`${message}. Attempt ${nextFailures} of 5.`);
       }
     }
   };
@@ -112,7 +113,7 @@ export default function Login() {
             Welcome back
           </h1>
           <p className="text-xs text-neutral-text-muted mt-1.5 font-medium">
-            Enter your enterprise credentials to access your ESG cockpit.
+            Enter your email and password to access your ESG workspace.
           </p>
         </div>
 
@@ -131,7 +132,7 @@ export default function Login() {
           {/* Email field */}
           <div className="space-y-1.5">
             <label className="text-[11px] font-bold text-neutral-text-dark uppercase tracking-wider" htmlFor="email-input">
-              Work Email Address
+              Email Address
             </label>
             <div className="relative">
               <Mail className="absolute left-3 top-3 w-4 h-4 text-neutral-text-muted" />
@@ -139,7 +140,7 @@ export default function Login() {
                 id="email-input"
                 type="email"
                 autoFocus
-                placeholder="you@company.com"
+                placeholder="you@example.com"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 onBlur={() => validateEmail(email)}

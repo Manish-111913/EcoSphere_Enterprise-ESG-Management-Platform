@@ -16,6 +16,7 @@ import DataTable, { Column } from '../../components/ui-kit/DataTable';
 import FormDrawer from '../../components/ui-kit/FormDrawer';
 import StatusBadge, { StatusValue } from '../../components/ui-kit/StatusBadge';
 import { useToast } from '../../components/ui-kit/Toast';
+import SelectField from '../../components/ui/select-field';
 
 // ProgressRing Sub-component for delightful circular visual ratios
 interface ProgressRingProps {
@@ -489,15 +490,15 @@ export default function Goals() {
               <label className="text-[10px] font-black uppercase text-neutral-text-muted tracking-wider">
                 Assigned Department <span className="text-red-500">*</span>
               </label>
-              <select
+              <SelectField
                 value={formDept}
-                onChange={e => setFormDept(e.target.value)}
-                className="w-full text-xs px-3.5 py-2.5 border border-neutral-border bg-white rounded-xl focus:outline-none focus:ring-1 focus:ring-primary-teal font-semibold"
-              >
-                {departments.map((d, i) => (
-                  <option key={i} value={d}>{d}</option>
-                ))}
-              </select>
+                onValueChange={setFormDept}
+                options={departments.map((department) => ({
+                  value: department,
+                  label: department,
+                }))}
+                triggerClassName="w-full h-10 text-xs px-3.5 py-2.5 font-semibold"
+              />
             </div>
 
             {/* Target Unit */}

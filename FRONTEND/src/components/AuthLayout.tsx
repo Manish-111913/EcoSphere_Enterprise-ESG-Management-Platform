@@ -48,7 +48,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               EcoSphere
             </span>
             <p className="text-[10px] uppercase tracking-wider text-emerald-200/80 font-semibold -mt-1">
-              Enterprise ESG Suite
+              ESG Management Suite
             </p>
           </div>
         </div>
@@ -138,7 +138,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
         {/* Desktop Footer info */}
         <div className="hidden md:block text-[11px] text-emerald-300/60 font-medium text-center md:text-left relative z-10">
-          &copy; 2026 EcoSphere Inc. All rights reserved. Secure, client-only enterprise environment.
+          &copy; 2026 EcoSphere Inc. All rights reserved. Secure ESG platform for modern teams.
         </div>
       </div>
 

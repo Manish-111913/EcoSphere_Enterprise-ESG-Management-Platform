@@ -1,37 +1,29 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { useApp } from '../../context/AppContext';
-import { socialGovernanceService } from '../../services/socialGovernanceService';
+import { policiesService } from '../../services/policiesService';
+import { Policy } from '../../types';
 import {
   FileWarning,
   ArrowLeft,
   Clock,
   ArrowRight,
   ShieldAlert,
-  FileText
+  FileText,
 } from 'lucide-react';
 
 export default function PendingPolicies() {
-  const { user } = useApp();
   const navigate = useNavigate();
+  const [pendingPolicies, setPendingPolicies] = useState<Policy[]>([]);
 
-  const policies = socialGovernanceService.getPolicies();
-  const employees = socialGovernanceService.getEmployees();
-  const acknowledgements = socialGovernanceService.getPolicyAcknowledgements();
-
-  // Find active employee
-  const currentEmployee = employees.find(emp => emp.email === user?.email) || employees[0];
-
-  // Filter pending policies
-  const employeeAcks = acknowledgements.filter(ack => ack.employeeId === currentEmployee?.id);
-  const pendingPolicies = policies.filter(policy => {
-    const ack = employeeAcks.find(a => a.policyId === policy.id);
-    return !ack || ack.status !== 'Completed';
-  });
+  useEffect(() => {
+    policiesService
+      .getPendingPolicies()
+      .then(setPendingPolicies)
+      .catch(() => setPendingPolicies([]));
+  }, []);
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6" id="pending-policies-page">
-      {/* Back link */}
       <div>
         <Link
           to="/governance/policies"
@@ -41,26 +33,23 @@ export default function PendingPolicies() {
         </Link>
       </div>
 
-      {/* Header */}
       <div className="border-b border-neutral-border pb-6">
         <h1 className="text-3xl font-bold text-neutral-text-dark font-sans tracking-tight flex items-center gap-2">
           <ShieldAlert className="h-8 w-8 text-amber-500" /> Pending Policy Checklist
         </h1>
         <p className="text-sm text-neutral-text-muted mt-1">
-          Below are the annual corporate compliance documents requiring your review and official acknowledgement.
+          Below are the active policy documents that still need your acknowledgement.
         </p>
       </div>
 
-      {/* List Checklist */}
       <div className="space-y-4">
-        {pendingPolicies.map((policy, idx) => {
-          // Calculate mock deadline
+        {pendingPolicies.map((policy) => {
           const effDateObj = new Date(policy.effectiveDate);
           const deadlineObj = new Date(effDateObj.getTime() + 30 * 24 * 60 * 60 * 1000);
           const deadlineStr = deadlineObj.toLocaleDateString('en-US', {
             month: 'long',
             day: 'numeric',
-            year: 'numeric'
+            year: 'numeric',
           });
 
           return (
@@ -74,13 +63,16 @@ export default function PendingPolicies() {
                   <FileText className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-base text-neutral-text-dark leading-tight hover:text-primary-teal cursor-pointer" onClick={() => navigate(`/governance/policies/${policy.id}`)}>
+                  <h3
+                    className="font-bold text-base text-neutral-text-dark leading-tight hover:text-primary-teal cursor-pointer"
+                    onClick={() => navigate(`/governance/policies/${policy.id}`)}
+                  >
                     {policy.title}
                   </h3>
                   <p className="text-xs text-neutral-text-muted mt-1 leading-normal max-w-lg">
                     {policy.description}
                   </p>
-                  
+
                   <div className="flex items-center gap-3 mt-2.5 text-[11px] font-semibold text-neutral-text-muted">
                     <span className="bg-neutral-bg text-neutral-text-dark px-2 py-0.5 rounded font-mono">
                       v{policy.version}
@@ -103,7 +95,6 @@ export default function PendingPolicies() {
           );
         })}
 
-        {/* Checked off state */}
         {pendingPolicies.length === 0 && (
           <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-10 text-center max-w-md mx-auto space-y-4">
             <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto shadow-sm">
@@ -111,7 +102,7 @@ export default function PendingPolicies() {
             </div>
             <h3 className="text-lg font-bold text-emerald-900">Compliance fully up-to-date!</h3>
             <p className="text-xs text-emerald-700 leading-relaxed">
-              Excellent! You have reviewed and signed off on all active policies required for your role. No pending actions at this time.
+              You have reviewed and signed off on all currently pending policies.
             </p>
             <Link
               to="/governance/policies"

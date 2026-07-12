@@ -21,6 +21,7 @@ import {
   SlidersHorizontal,
   X
 } from 'lucide-react';
+import SelectField from '../../components/ui/select-field';
 
 export default function Challenges() {
   const { user, role, refreshUser } = useApp();
@@ -264,27 +265,29 @@ export default function Challenges() {
               <span>Filters:</span>
             </div>
             
-            <select
+            <SelectField
               value={pillarFilter}
-              onChange={(e) => setPillarFilter(e.target.value)}
-              className="bg-neutral-bg hover:bg-neutral-border/30 border border-neutral-border/30 text-xs font-medium text-neutral-text-dark px-3 py-1.5 rounded-button focus:outline-none transition-colors cursor-pointer"
-            >
-              <option value="all">All Pillars</option>
-              <option value="E">Environmental (E)</option>
-              <option value="S">Social (S)</option>
-              <option value="G">Governance (G)</option>
-            </select>
+              onValueChange={setPillarFilter}
+              options={[
+                { value: 'all', label: 'All Pillars' },
+                { value: 'E', label: 'Environmental (E)' },
+                { value: 'S', label: 'Social (S)' },
+                { value: 'G', label: 'Governance (G)' },
+              ]}
+              triggerClassName="h-9 bg-neutral-bg text-xs font-medium text-neutral-text-dark px-3 py-1.5 rounded-button border-neutral-border/30"
+            />
 
-            <select
+            <SelectField
               value={difficultyFilter}
-              onChange={(e) => setDifficultyFilter(e.target.value)}
-              className="bg-neutral-bg hover:bg-neutral-border/30 border border-neutral-border/30 text-xs font-medium text-neutral-text-dark px-3 py-1.5 rounded-button focus:outline-none transition-colors cursor-pointer"
-            >
-              <option value="all">All Difficulties</option>
-              <option value="Easy">Easy</option>
-              <option value="Medium">Medium</option>
-              <option value="Hard">Hard</option>
-            </select>
+              onValueChange={setDifficultyFilter}
+              options={[
+                { value: 'all', label: 'All Difficulties' },
+                { value: 'Easy', label: 'Easy' },
+                { value: 'Medium', label: 'Medium' },
+                { value: 'Hard', label: 'Hard' },
+              ]}
+              triggerClassName="h-9 bg-neutral-bg text-xs font-medium text-neutral-text-dark px-3 py-1.5 rounded-button border-neutral-border/30"
+            />
 
             {(searchQuery || pillarFilter !== 'all' || difficultyFilter !== 'all') && (
               <button
@@ -557,28 +560,30 @@ export default function Challenges() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-neutral-text-dark">Pillar</label>
-                      <select
+                      <SelectField
                         value={formData.pillar}
-                        onChange={(e) => setFormData(prev => ({ ...prev, pillar: e.target.value as 'E' | 'S' | 'G' }))}
-                        className="w-full bg-neutral-bg hover:bg-neutral-border/20 text-sm px-3.5 py-2 rounded-button border border-neutral-border outline-none transition-all text-neutral-text-dark"
-                      >
-                        <option value="E">Environmental (E)</option>
-                        <option value="S">Social Impact (S)</option>
-                        <option value="G">Governance (G)</option>
-                      </select>
+                        onValueChange={(value) => setFormData((prev) => ({ ...prev, pillar: value as 'E' | 'S' | 'G' }))}
+                        options={[
+                          { value: 'E', label: 'Environmental (E)' },
+                          { value: 'S', label: 'Social Impact (S)' },
+                          { value: 'G', label: 'Governance (G)' },
+                        ]}
+                        triggerClassName="w-full h-10 bg-neutral-bg text-sm px-3.5 py-2 rounded-button border-neutral-border text-neutral-text-dark"
+                      />
                     </div>
 
                     <div className="space-y-1">
                       <label className="text-xs font-bold text-neutral-text-dark">Difficulty</label>
-                      <select
+                      <SelectField
                         value={formData.difficulty}
-                        onChange={(e) => setFormData(prev => ({ ...prev, difficulty: e.target.value as any }))}
-                        className="w-full bg-neutral-bg hover:bg-neutral-border/20 text-sm px-3.5 py-2 rounded-button border border-neutral-border outline-none transition-all text-neutral-text-dark"
-                      >
-                        <option value="Easy">Easy</option>
-                        <option value="Medium">Medium</option>
-                        <option value="Hard">Hard</option>
-                      </select>
+                        onValueChange={(value) => setFormData((prev) => ({ ...prev, difficulty: value as any }))}
+                        options={[
+                          { value: 'Easy', label: 'Easy' },
+                          { value: 'Medium', label: 'Medium' },
+                          { value: 'Hard', label: 'Hard' },
+                        ]}
+                        triggerClassName="w-full h-10 bg-neutral-bg text-sm px-3.5 py-2 rounded-button border-neutral-border text-neutral-text-dark"
+                      />
                     </div>
                   </div>
 

@@ -33,6 +33,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Initialize notifications & approvals
   useEffect(() => {
+    if (!isLoggedIn) {
+      setNotifications([]);
+      setPendingApprovals([]);
+      return;
+    }
+
     async function loadInitialData() {
       try {
         const notifs = await dashboardService.getNotifications();
@@ -40,11 +46,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const approvals = await dashboardService.getPendingApprovals();
         setPendingApprovals(approvals);
       } catch (err) {
-        console.error('Failed to load initial mock data', err);
+        console.error('Failed to load initial app data', err);
       }
     }
-    loadInitialData();
-  }, []);
+    void loadInitialData();
+  }, [isLoggedIn]);
 
   const refreshUser = () => {
     // Re-fetch the live profile (xp balance / level) from the backend.

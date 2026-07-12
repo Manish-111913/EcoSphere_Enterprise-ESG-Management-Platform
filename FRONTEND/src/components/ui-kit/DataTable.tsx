@@ -12,6 +12,19 @@ import {
   Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '../ui/dropdown-menu';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
 
 export interface Column<T> {
   key: keyof T | string;
@@ -80,9 +93,6 @@ export default function DataTable<T>({
 
   // Checkbox State
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
-  // Actions Dropdown state
-  const [openActionId, setOpenActionId] = useState<string | null>(null);
 
   // Handle Sort
   const handleSort = (key: keyof T | string, sortable?: boolean) => {
@@ -342,39 +352,27 @@ export default function DataTable<T>({
                     ))}
                     {actions && (
                       <td className="p-4 text-center relative">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenActionId(openActionId === rowId ? null : rowId);
-                          }}
-                          className="p-1.5 hover:bg-neutral-bg border border-transparent hover:border-neutral-border rounded-lg text-neutral-text-muted hover:text-neutral-text-dark transition"
-                        >
-                          <MoreHorizontal className="h-4 w-4" />
-                        </button>
-
-                        {/* Actions Menu dropdown */}
-                        {openActionId === rowId && (
-                          <>
-                            <div className="fixed inset-0 z-30" onClick={() => setOpenActionId(null)} />
-                            <div className="absolute right-4 mt-1 bg-white border border-neutral-border shadow-lg rounded-xl py-1 z-40 min-w-[140px] text-left">
-                              {actions.map((act, aIdx) => (
-                                <button
-                                  key={aIdx}
-                                  onClick={() => {
-                                    act.onClick(row);
-                                    setOpenActionId(null);
-                                  }}
-                                  className={`w-full px-3 py-1.5 text-left text-[11px] font-bold hover:bg-neutral-bg flex items-center gap-2 ${
-                                    act.className || 'text-neutral-text-dark'
-                                  }`}
-                                >
-                                  {act.icon && <span className="shrink-0">{act.icon}</span>}
-                                  {act.label}
-                                </button>
-                              ))}
-                            </div>
-                          </>
-                        )}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              className="p-1.5 hover:bg-neutral-bg border border-transparent hover:border-neutral-border rounded-lg text-neutral-text-muted hover:text-neutral-text-dark transition"
+                            >
+                              <MoreHorizontal className="h-4 w-4" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="min-w-[140px] text-left">
+                            {actions.map((act, aIdx) => (
+                              <DropdownMenuItem
+                                key={aIdx}
+                                onClick={() => act.onClick(row)}
+                                className={act.className || 'text-neutral-text-dark'}
+                              >
+                                {act.icon && <span className="shrink-0">{act.icon}</span>}
+                                {act.label}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </td>
                     )}
                   </tr>
@@ -392,18 +390,24 @@ export default function DataTable<T>({
           {/* Rows per page selector */}
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-black uppercase text-neutral-text-muted">Rows per page:</span>
-            <select
-              value={rowsPerPage}
-              onChange={e => {
-                setRowsPerPage(Number(e.target.value));
+            <Select
+              value={String(rowsPerPage)}
+              onValueChange={(value) => {
+                setRowsPerPage(Number(value));
                 setCurrentPage(1);
               }}
-              className="border border-neutral-border rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary-teal focus:border-primary-teal bg-white"
             >
-              {[5, 10, 25, 50].map(size => (
-                <option key={size} value={size}>{size}</option>
-              ))}
-            </select>
+              <SelectTrigger className="h-8 w-[88px] rounded-lg px-2 text-xs font-semibold shadow-none">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[5, 10, 25, 50].map((size) => (
+                  <SelectItem key={size} value={String(size)}>
+                    {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* Page numbers + quick links */}
