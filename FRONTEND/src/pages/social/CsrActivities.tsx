@@ -211,12 +211,15 @@ export default function CsrActivities() {
       {/* Card Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filteredActivities.map((act) => {
+          const isDraft = act.status === 'Draft';
           const isClosed = act.status === 'Completed';
           const isFull = act.joinedCount >= act.capacity;
           const isUserJoined = participations.some(p => p.activityId === act.id && p.employeeId === currentEmployee?.id);
+          const isJoinable = act.status === 'Active' && !isFull;
           
           let tooltipText = '';
-          if (isClosed) tooltipText = 'This activity is completed and closed.';
+          if (isDraft) tooltipText = 'This activity is still in draft and not yet open for employee participation.';
+          else if (isClosed) tooltipText = 'This activity is no longer open for participation.';
           else if (isFull && !isUserJoined) tooltipText = 'Activity capacity is fully reached.';
 
           return (
@@ -246,10 +249,10 @@ export default function CsrActivities() {
                   </span>
 
                   {/* Status Overlay */}
-                  {isClosed && (
+                  {(isDraft || isClosed) && (
                     <div className="absolute inset-0 bg-neutral-text-dark/50 flex items-center justify-center">
                       <span className="bg-neutral-text-dark text-white text-xs font-bold px-3 py-1.5 rounded-lg border border-white/20">
-                        COMPLETED
+                        {isDraft ? 'DRAFT' : 'CLOSED'}
                       </span>
                     </div>
                   )}
@@ -312,7 +315,7 @@ export default function CsrActivities() {
 
                 {/* Join CTA with custom tooltip trigger */}
                 <div className="relative group/tooltip">
-                  {isClosed || (isFull && !isUserJoined) ? (
+                  {!isJoinable && !isUserJoined ? (
                     <>
                       <button
                         type="button"
@@ -619,10 +622,16 @@ export default function CsrActivities() {
                   <button
                     type="button"
                     onClick={(e) => handleJoin(selectedActivity.id, e)}
-                    disabled={selectedActivity.status === 'Completed' || selectedActivity.joinedCount >= selectedActivity.capacity}
+                    disabled={selectedActivity.status !== 'Active' || selectedActivity.joinedCount >= selectedActivity.capacity}
                     className="flex-1 py-2.5 bg-primary-teal hover:bg-teal-700 disabled:bg-neutral-bg disabled:text-neutral-text-muted disabled:border-neutral-border text-white text-xs font-bold rounded-lg transition-colors"
                   >
-                    Join Activity Now
+                    {selectedActivity.status === 'Draft'
+                      ? 'Draft Activity'
+                      : selectedActivity.status !== 'Active'
+                      ? 'Participation Closed'
+                      : selectedActivity.joinedCount >= selectedActivity.capacity
+                      ? 'Activity Full'
+                      : 'Join Activity Now'}
                   </button>
                 )}
               </div>
