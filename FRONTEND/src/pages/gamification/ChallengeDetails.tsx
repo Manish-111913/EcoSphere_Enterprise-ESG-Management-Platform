@@ -119,6 +119,77 @@ export default function ChallengeDetails() {
     };
   }, [id]);
 
+  // DataTable participants list mapping
+  const participantRows = useMemo(() => {
+    return participations.map(p => {
+      const emp = employees.find(e => e.id === p.employeeId);
+      return {
+        id: p.id,
+        name: emp?.name || 'Unknown Colleague',
+        email: emp?.email || '',
+        avatar: emp?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
+        department: emp ? (emp.departmentId === 'dept-1' ? 'Human Resources' : emp.departmentId === 'dept-2' ? 'Engineering' : emp.departmentId === 'dept-3' ? 'Procurement' : emp.departmentId === 'dept-4' ? 'Legal' : 'Operations') : 'Corporate',
+        progress: p.progress || 0,
+        status: p.status,
+        proofUrl: p.proofUrl
+      };
+    });
+  }, [participations, employees]);
+
+  // Chronological activity timeline items generator
+  const activityTimeline = useMemo(() => {
+    const list: { id: string; user: { name: string; avatar: string }; action: string; time: string; icon: any; color: string }[] = [];
+
+    participations.forEach((p, idx) => {
+      const emp = employees.find(e => e.id === p.employeeId);
+      if (!emp) return;
+
+      const baseUser = { name: emp.name, avatar: emp.avatar };
+
+      // Join event
+      list.push({
+        id: `join-${p.id}`,
+        user: baseUser,
+        action: 'joined this sustainability challenge.',
+        time: p.timestamp ? new Date(new Date(p.timestamp).getTime() - 2 * 3600000).toLocaleDateString() : 'Recent',
+        icon: Users,
+        color: 'bg-teal-100 text-teal-700'
+      });
+
+      // Status events
+      if (p.status === 'Pending Review') {
+        list.push({
+          id: `submit-${p.id}`,
+          user: baseUser,
+          action: 'submitted completion proof for auditor review.',
+          time: p.timestamp ? new Date(p.timestamp).toLocaleDateString() : 'Recent',
+          icon: Send,
+          color: 'bg-amber-100 text-amber-700'
+        });
+      } else if (p.status === 'Completed') {
+        list.push({
+          id: `complete-${p.id}`,
+          user: baseUser,
+          action: `completed the challenge! Earned +${challenge?.xp ?? 0} XP and +${challenge?.points ?? 0} Points.`,
+          time: p.timestamp ? new Date(p.timestamp).toLocaleDateString() : 'Recent',
+          icon: Trophy,
+          color: 'bg-emerald-100 text-emerald-700'
+        });
+      } else if (p.status === 'Failed') {
+        list.push({
+          id: `fail-${p.id}`,
+          user: baseUser,
+          action: 'had submission rejected or challenge expired.',
+          time: p.timestamp ? new Date(p.timestamp).toLocaleDateString() : 'Recent',
+          icon: AlertCircle,
+          color: 'bg-rose-100 text-rose-700'
+        });
+      }
+    });
+
+    return list.sort((a, b) => b.id.localeCompare(a.id));
+  }, [participations, employees, challenge]);
+
   if (challengeLoading) {
     return (
       <div className="max-w-xl mx-auto py-16 px-4 text-center space-y-4">
@@ -246,77 +317,6 @@ export default function ChallengeDetails() {
       case 'G': return 'bg-indigo-500/10 text-indigo-700 border-indigo-300';
     }
   };
-
-  // DataTable participants list mapping
-  const participantRows = useMemo(() => {
-    return participations.map(p => {
-      const emp = employees.find(e => e.id === p.employeeId);
-      return {
-        id: p.id,
-        name: emp?.name || 'Unknown Colleague',
-        email: emp?.email || '',
-        avatar: emp?.avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150',
-        department: emp ? (emp.departmentId === 'dept-1' ? 'Human Resources' : emp.departmentId === 'dept-2' ? 'Engineering' : emp.departmentId === 'dept-3' ? 'Procurement' : emp.departmentId === 'dept-4' ? 'Legal' : 'Operations') : 'Corporate',
-        progress: p.progress || 0,
-        status: p.status,
-        proofUrl: p.proofUrl
-      };
-    });
-  }, [participations, employees]);
-
-  // Chronological activity timeline items generator
-  const activityTimeline = useMemo(() => {
-    const list: { id: string; user: { name: string; avatar: string }; action: string; time: string; icon: any; color: string }[] = [];
-    
-    participations.forEach((p, idx) => {
-      const emp = employees.find(e => e.id === p.employeeId);
-      if (!emp) return;
-
-      const baseUser = { name: emp.name, avatar: emp.avatar };
-
-      // Join event
-      list.push({
-        id: `join-${p.id}`,
-        user: baseUser,
-        action: 'joined this sustainability challenge.',
-        time: p.timestamp ? new Date(new Date(p.timestamp).getTime() - 2 * 3600000).toLocaleDateString() : 'Recent',
-        icon: Users,
-        color: 'bg-teal-100 text-teal-700'
-      });
-
-      // Status events
-      if (p.status === 'Pending Review') {
-        list.push({
-          id: `submit-${p.id}`,
-          user: baseUser,
-          action: 'submitted completion proof for auditor review.',
-          time: p.timestamp ? new Date(p.timestamp).toLocaleDateString() : 'Recent',
-          icon: Send,
-          color: 'bg-amber-100 text-amber-700'
-        });
-      } else if (p.status === 'Completed') {
-        list.push({
-          id: `complete-${p.id}`,
-          user: baseUser,
-          action: `completed the challenge! Earned +${challenge?.xp ?? 0} XP and +${challenge?.points ?? 0} Points.`,
-          time: p.timestamp ? new Date(p.timestamp).toLocaleDateString() : 'Recent',
-          icon: Trophy,
-          color: 'bg-emerald-100 text-emerald-700'
-        });
-      } else if (p.status === 'Failed') {
-        list.push({
-          id: `fail-${p.id}`,
-          user: baseUser,
-          action: 'had submission rejected or challenge expired.',
-          time: p.timestamp ? new Date(p.timestamp).toLocaleDateString() : 'Recent',
-          icon: AlertCircle,
-          color: 'bg-rose-100 text-rose-700'
-        });
-      }
-    });
-
-    return list.sort((a, b) => b.id.localeCompare(a.id));
-  }, [participations, employees, challenge]);
 
   // Roles verification
   const isReviewer = role === 'Admin' || role === 'CSR Manager';
